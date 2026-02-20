@@ -1,0 +1,19 @@
+name: surrogate-modeling-179d
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.12
+  - pip
+
+  # Conda scientific stack
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+
+  # Pip-only packages
+  - pip:
+      - xgboost
+      - lightgbm
