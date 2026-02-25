@@ -12,6 +12,7 @@ dependencies:
   - pandas
   - scikit-learn
   - matplotlib
+  - pyyaml
 
   # Pip-only packages
   - pip:
