@@ -6,13 +6,14 @@ channels:
 dependencies:
   - python=3.12
   - pip
+  - pyyaml
+  - pytest
 
   # Conda scientific stack
   - numpy
   - pandas
   - scikit-learn
   - matplotlib
-  - pyyaml
 
   # Pip-only packages
   - pip:

@@ -1,3 +1,38 @@
-building_types: [SmallOffice, RetailStripmall]
-system_types: [HP RTU, MSHP DOAS, PSZ-AC with electric coil, PSZ-AC with gas coil, PSZ-HP, VRF DOAS]
-climate_zones: [1A, 2A, 2B, 3A, 3B, 3C, 4A, 4B, 4C, 5A, 5B, 5C, 6A, 6B, 7A, 8A]
+# usecase string built using building_type (BT), system_type (ST), and climate_zone (CZ) aliases seperated by 'sep'
+# usecase string = BT + sep + ST + sep + CZ
+# Final Surrogate Models and analysis files are identified using usecase string
+# Model Files copied over to  https://github.com/NatLabRockies/BEM-prediction-models/tree/develop/calculator_179d/model_files
+usecase:
+  sep: "_"
+
+  #Aliases map BEM csv values of BT, ST, and CZ to usecase substrings. Ex SmallOffice -> small_office
+  aliases:
+    building_type:
+      SmallOffice: small_office
+      RetailStripmall: retail_stripmall
+    
+    system_type:
+      HP RTU: HP_RTU
+      MSHP DOAS: MSHP_DOAS
+      PSZ-AC with electric coil: PSZ-AC_with_electric_coil
+      PSZ-AC with gas coil: PSZ-AC_with_gas_coil
+      PSZ-HP: PSZ-HP
+      VRF DOAS: VRF_DOAS
+
+    climate_zone:
+      1A: CZ1A
+      2A: CZ2A
+      2B: CZ2B
+      3A: CZ3A
+      3B: CZ3B
+      3C: CZ3C
+      4A: CZ4A
+      4B: CZ4B
+      4C: CZ4C
+      5A: CZ5A
+      5B: CZ5B
+      5C: CZ5C
+      6A: CZ6A
+      6B: CZ6B
+      7A: CZ7
+      8A: CZ8

@@ -64,6 +64,52 @@ class UsecaseResolver:
     system_type_rev: Dict[str, str]
     climate_zone_rev: Dict[str, str]
 
+    @staticmethod
+    def from_yaml(path: Path) -> UsecaseResolver:
+        cfg = yaml.safe_load(path.read_text())
+        uc = cfg.get("usecase", {})
+        aliases = uc.get("aliases", {})
+
+        bt = dict(aliases.get("building_type", {}))
+        st = dict(aliases.get("system_type", {}))
+        cz = dict(aliases.get("climate_zone", {}))
+
+        return UsecaseResolver(
+            sep=uc.get("sep", "__"),
+            building_type_alias=bt,
+            system_type_alias=st,
+            climate_zone_alias=cz,
+            building_type_rev=invert_map(bt),
+            system_type_rev=invert_map(st),
+            climate_zone_rev=invert_map(cz),
+        )
+
+    def to_slug(self, kind: Kind, raw: str) -> str:
+        """
+        Convert a raw/canonical value to its slug used in usecase IDs.
+        """
+        if kind == "building_type":
+            return self.building_type_alias.get(raw, default_slugify(raw))
+        if kind == "system_type":
+            return self.system_type_alias.get(raw, default_slugify(raw))
+        if kind == "climate_zone":
+            return self.climate_zone_alias.get(raw, default_slugify(raw))
+        raise ValueError(f"Unknown kind: {kind}")
+
+    def to_raw(self, kind: Kind, slug: str) -> str:
+        """
+        Convert a slug back to the raw/canonical value, if it exists in aliases.
+        If it doesn't exist, return the slug (or you can choose to error).
+        """
+        if kind == "building_type":
+            return self.building_type_rev.get(slug, slug)
+        if kind == "system_type":
+            return self.system_type_rev.get(slug, slug)
+        if kind == "climate_zone":
+            return self.climate_zone_rev.get(slug, slug)
+        raise ValueError(f"Unknown kind: {kind}")
+
+
     
     def parse_id(self, usecase_id: str, strict: bool = True) -> Tuple[str, str, str]:
         """
