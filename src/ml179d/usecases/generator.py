@@ -7,6 +7,7 @@ from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 import yaml
 from ml179d.usecases.types import Usecase
+from ml179d.usecases.protocols import UsecaseResolverLike
 
 """
 UsecaseSpace
@@ -51,7 +52,6 @@ def default_validity(_: Usecase) -> bool:
 def generate_usecases(
     space: UsecaseSpace,
     validity_fn: ValidityFn = default_validity,
-    sort: bool = True,
 ) -> List[Usecase]:
     """
     Generate the cartesian product of building_types × system_types × climate_zones,
@@ -63,17 +63,16 @@ def generate_usecases(
         if validity_fn(uc):
             usecases.append(uc)
 
-    if sort:
-        usecases.sort(key=lambda u: u.id)
     return usecases
 
 
 def generate_usecase_ids(
     space: UsecaseSpace,
+    resolver: UsecaseResolverLike,
     validity_fn: ValidityFn = default_validity,
     sort: bool = True,
 ) -> List[str]:
-    return [u.id for u in generate_usecases(space, validity_fn=validity_fn, sort=sort)]
+    ids =  [u.id(resolver) for u in generate_usecases(space, validity_fn=validity_fn, sort=sort)]
 
 
 # Example validity rule (optional): block certain system types for certain buildings

@@ -1,13 +1,11 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+from .protocols import UsecaseResolverLike, Kind
+
 """
 Stores the definition of what a usecase is
 """
-
-class UsecaseResolverLike(Protocol):
-    sep: str
-    def to_slug(self, kind: str, raw: str) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
