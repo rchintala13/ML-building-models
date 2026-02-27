@@ -45,15 +45,15 @@ def test_parse_id_with_underscore_separator():
 def test_yaml_loading(tmp_path: Path):
     yaml_text = """
     usecase:
-    sep: "_"
-    aliases:
-        building_type:
-        SmallOffice: small_office
-        system_type:
-        "PSZ-AC with electric coil": PSZ-AC_with_electric_coil
-        MSHP DOAS: MSHP_DOAS
-        climate_zone:
-        "7A": CZ7
+        sep: "_"
+        aliases:
+            building_type:
+                SmallOffice: small_office
+            system_type:
+                PSZ-AC with electric coil: PSZ-AC_with_electric_coil
+                MSHP DOAS: MSHP_DOAS
+            climate_zone:
+                7A: CZ7
     """
     cfg = tmp_path / "usecase_config.yaml"
     cfg.write_text(yaml_text)

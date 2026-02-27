@@ -54,6 +54,8 @@ def invert_map(raw_to_slug: Dict[str, str]) -> Dict[str, str]:
 ## Class that stores mappings from raw (BEM Fields) -> slugs (aliases) and vice versa
 @dataclass(frozen=True)
 class UsecaseResolver:
+
+    sep: str
     # forward maps: raw -> slug
     building_type_alias: Dict[str, str]
     system_type_alias: Dict[str, str]
@@ -75,7 +77,7 @@ class UsecaseResolver:
         cz = dict(aliases.get("climate_zone", {}))
 
         return UsecaseResolver(
-            sep=uc.get("sep", "__"),
+            sep=uc.get("sep", "_"),
             building_type_alias=bt,
             system_type_alias=st,
             climate_zone_alias=cz,
