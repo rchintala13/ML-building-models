@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from .protocols import UsecaseResolverLike, Kind
+from ml179d.usecases.protocols import UsecaseResolverLike, Kind
 
 """
 Stores the definition of what a usecase is

@@ -34,10 +34,16 @@ class UsecaseSpace:
     @staticmethod
     def from_yaml(path: Path) -> UsecaseSpace:
         cfg = yaml.safe_load(path.read_text())
+        uc = cfg.get("usecase", {})
+        aliases = uc.get("aliases", {})
+
+        bts = tuple(dict(aliases.get("building_type", {})).keys())
+        sts = tuple(dict(aliases.get("system_type", {})).keys())
+        czs = tuple(dict(aliases.get("climate_zone", {})).keys())
         return UsecaseSpace(
-            building_types=tuple(cfg.get("building_types", []).keys()),
-            system_types=tuple(cfg.get("system_types", []).keys()),
-            climate_zones=tuple(cfg.get("climate_zones", []).keys()),
+            building_types=bts,
+            system_types=sts,
+            climate_zones=czs,
         )
     
 
@@ -72,7 +78,11 @@ def generate_usecase_ids(
     validity_fn: ValidityFn = default_validity,
     sort: bool = True,
 ) -> List[str]:
-    ids =  [u.id(resolver) for u in generate_usecases(space, validity_fn=validity_fn, sort=sort)]
+    ids =  [u.id(resolver) for u in generate_usecases(space, validity_fn=validity_fn)]
+
+    if sort:
+        ids.sort()
+    return ids
 
 
 # Example validity rule (optional): block certain system types for certain buildings
