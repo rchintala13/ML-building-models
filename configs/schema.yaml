@@ -1,0 +1,346 @@
+### 
+# Scenarios: baseline/proposed/baseline_prm
+# Baseline models also used proposed inputs (since we only have user inputs to predict baseline and proposed predictions)
+# If you are interested in values used in baseline simulations use scenario = baseline_prm for scenario based features
+# Do not develop models using baseline_prm since we would not have these available in the web calculator
+
+defaults:
+  required: false
+  dtype: str
+
+roles:
+  id: ["building_type", "system_type", "climate_zone"]
+  row_id: ["name"]
+  features: []
+  targets: []
+
+
+columns:
+
+  # -------------------------
+  # Usecase identifiers
+  # -------------------------
+  building_type:
+    role: id
+    required: true
+    dtype: str
+    sources:
+      - reporting_179_d.in_primary_bldg_type
+
+  climate_zone:
+    role: id
+    required: true
+    dtype: str
+    sources:
+      - reporting_179_d.in_weather_climate_zone
+
+  system_type:
+    role: id
+    required: true
+    dtype: str
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d_support.in_hvac_system_type_proposed
+      baseline:
+        # baseline models are also built using proposed inputs
+        - reporting_179_d_support.in_hvac_system_type_proposed
+      baseline_prm:
+        # baseline system used in simulation
+        - reporting_179_d.in_hvac_system_type_prm
+
+  # -------------------------
+  # Building properties (features)
+  # -------------------------
+  aspect_ratio:
+    role: feature
+    required: true
+    dtype: float
+    sources:
+      - reporting_179_d.in_ns_to_ew_ratio
+
+  number_of_floors:
+    role: feature
+    required: true
+    dtype: int
+    sources:
+      - reporting_179_d.in_num_stories_above_grade
+
+  gross_floor_area:
+    role: feature
+    required: true
+    dtype: float
+    unit: m^2
+    sources:
+      - reporting_179_d.in_floor_area_m_2
+
+  roof_area:
+  role: feature
+  required: true
+  dtype: float
+  unit: m^2
+  sources:
+    - reporting_179_d.in_roof_area_m_2
+
+  ext_wall_surface_area:
+    role: feature
+    required: true
+    dtype: float
+    unit: m^2
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_exterior_wall_area_m_2
+      baseline:
+        # baseline models built using proposed inputs
+        - reporting_179_d_support.in_exterior_wall_area_m_2_proposed
+      baseline_prm:
+        # value used in baseline simulation
+        - reporting_179d.in_exterior_wall_area_m_2
+
+  window_area:
+    role: feature
+    required: true
+    dtype: float
+    unit: m^2
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_window_area_m_2
+      baseline:
+        - reporting_179_d_support.in_window_area_m_2_proposed
+      baseline_prm:
+        - reporting_179_d.in_window_area_m_2
+
+  # -------------------------
+  # Envelope properties (features)
+  # -------------------------
+  ext_wall_u_factor:
+    role: feature
+    required: true
+    dtype: float
+    unit: W/m^2-K
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_average_ext_wall_u_value_si
+      baseline:
+        - reporting_179_d_support.in_average_ext_wall_u_value_si_proposed
+      baseline_prm:
+        - reporting_179_d.in_average_ext_wall_u_value_si
+
+  roof_u_factor:
+    role: feature
+    required: true
+    dtype: float
+    unit: W/m^2-K
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_average_roof_u_value_si
+      baseline:
+        - reporting_179_d_support.in_average_roof_u_value_si_proposed
+      baseline_prm:
+        - reporting_179_d.in_average_roof_u_value_si
+
+  window_u_factor:
+    role: feature
+    required: true
+    dtype: float
+    unit: W/m^2-K
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_window_u_value_w_per_m_2_k_overall
+      baseline:
+        - reporting_179_d_support.in_window_u_value_w_per_m_2_k_overall_proposed
+      baseline_prm:
+        - reporting_179_d.in_window_u_value_w_per_m_2_k_overall
+
+  window_wall_ratio:
+    role: feature
+    required: true
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_window_wwr_overall
+      baseline:
+        - reporting_179_d_support.in_window_wwr_overall_proposed
+      baseline_prm:
+        - reporting_179_d.in_window_wwr_overall
+
+  window_shgc:
+    role: feature
+    required: true
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_window_shgc_overall
+      baseline:
+        - reporting_179_d_support.in_window_shgc_overall_proposed
+      baseline_prm:
+        - reporting_179_d.in_window_shgc_overall
+
+  # -------------------------
+  # Infiltration (features)
+  # -------------------------
+  ACHInfiltration:
+    role: feature
+    required: true
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_infiltration_ach
+      baseline:
+        - reporting_179_d_support.in_infiltration_ach_proposed
+      baseline_prm:
+        - reporting_179_d.in_infiltration_ach
+
+  # -------------------------
+  # HVAC efficiencies (features)
+  # -------------------------
+  design_cooling_cop:
+    role: feature
+    required: false
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_hvac_dx_cooling_cop_design_capacity_weighted
+      baseline:
+        - reporting_179_d_support.in_hvac_dx_cooling_cop_design_capacity_weighted_proposed
+      baseline_prm:
+        - reporting_179_d.in_hvac_dx_cooling_cop_design_capacity_weighted
+
+  design_heating_cop:
+    role: feature
+    required: false
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_hvac_dx_heating_cop_design_capacity_weighted
+      baseline:
+        - reporting_179_d_support.in_hvac_dx_heating_cop_design_capacity_weighted_proposed
+      baseline_prm:
+        - reporting_179_d.in_hvac_dx_heating_cop_design_capacity_weighted
+
+  design_heating_eff:
+    role: feature
+    required: false
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_hvac_furnace_eff_design_capacity_weighted
+      baseline:
+        - reporting_179_d_support.in_hvac_furnace_eff_design_capacity_weighted_proposed
+      baseline_prm:
+        - reporting_179_d.in_hvac_furnace_eff_design_capacity_weighted
+
+  erv_sensible_cooling:
+    role: feature
+    required: false
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_hvac_controls_herv_effectiveness_sensible_cooling
+      baseline:
+        - reporting_179_d_support.in_hvac_controls_herv_effectiveness_sensible_cooling_proposed
+      baseline_prm:
+        - reporting_179_d.in_hvac_controls_herv_effectiveness_sensible_cooling
+
+  fan_power:
+    role: feature
+    required: false
+    dtype: float
+    unit: W
+    sources:
+      - reporting_179_d.in_hvac_zone_fan_total_power_w
+
+  # -------------------------
+  # Lighting (features)
+  # -------------------------
+  lpd:
+    role: feature
+    required: false
+    dtype: float
+    unit: W/m^2
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_interior_lighting_lpd_w_per_m_2
+      baseline:
+        - reporting_179_d_support.in_interior_lighting_lpd_w_per_m_2_proposed
+      baseline_prm:
+        - reporting_179_d.in_interior_lighting_lpd_w_per_m_2
+
+  # -------------------------
+  # Service hot water (features)
+  # -------------------------
+  water_heating_energy_factor:
+    role: feature
+    required: false
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_swh_burner_efficiency_weighted_avg
+      baseline:
+        - reporting_179_d_support.in_swh_burner_efficiency_weighted_avg_proposed
+      baseline_prm:
+        - reporting_179_d_support.in_swh_burner_efficiency_weighted_avg_proposed
+
+  water_heating_ua:
+    role: feature
+    required: false
+    dtype: float
+    sources_by_scenario:
+      proposed:
+        - reporting_179_d.in_swh_ua_w_per_k_weighted_avg
+      baseline:
+        - reporting_179_d_support.in_swh_ua_w_per_k_weighted_avg_proposed
+      baseline_prm:
+        - reporting_179_d_support.in_swh_ua_w_per_k_weighted_avg
+
+  swh_fuel_type:
+    role: feature
+    required: false
+    dtype: str
+    sources:
+      - reporting_179_d.in_swh_fuel_type
+
+  # -------------------------
+  # Unmet hours (outputs/QA)
+  # -------------------------
+  unmet_hrs_cooling:
+    role: output
+    required: false
+    dtype: float
+    sources:
+      - reporting_179_d.out_hours_cooling_setpoint_not_met_when_occupied_with_more_than_10_percent_occ
+
+  unmet_hrs_heating:
+    role: output
+    required: false
+    dtype: float
+    sources:
+      - reporting_179_d.out_hours_heating_setpoint_not_met_when_occupied_with_more_than_10_percent_occ
+
+  # -------------------------
+  # Energy outputs (targets or outputs)
+  # -------------------------
+  total_electricity_179d:
+    role: target
+    required: true
+    dtype: float
+    unit: GJ
+    sources:
+      - reporting_179_d.out_total_electricity_179_d_gj
+
+  total_gas_179d:
+    role: target
+    required: true
+    dtype: float
+    unit: GJ
+    sources:
+      - reporting_179_d.out_total_gas_179_d_gj
+
+# ---------------------------
+# Index column
+# ---------------------------
+  name:
+    role: row_id
+    required: true
+    dtype: str
+    sources:
+      - name
