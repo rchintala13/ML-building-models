@@ -1,0 +1,96 @@
+version: 1
+
+target_sets:
+  electricity:
+    - total_electricity_179d
+  natural_gas:
+    - total_gas_179d
+
+base_feature_sets:
+  electricity:
+    - aspect_ratio
+    - number_of_floors
+    - gross_floor_area
+    - ext_wall_surface_area
+    - roof_area
+    - window_area
+    - ext_wall_u_factor
+    - roof_u_factor
+    - window_u_factor
+    - window_wall_ratio
+    - window_shgc
+    - ACHInfiltration
+    - design_cooling_cop
+    - design_heating_cop
+    - design_heating_eff
+    - erv_sensible_cooling
+    - lpd
+    - fan_power
+
+  natural_gas:
+    - aspect_ratio
+    - number_of_floors
+    - gross_floor_area
+    - ext_wall_surface_area
+    - roof_area
+    - window_area
+    - ext_wall_u_factor
+    - roof_u_factor
+    - window_u_factor
+    - window_wall_ratio
+    - window_shgc
+    - ACHInfiltration
+    - design_heating_cop
+    - design_heating_eff
+    - water_heating_energy_factor
+    - water_heating_ua
+    - swh_fuel_type
+
+system_overrides:
+  packaged_vav:
+    add_features:
+      - fan_power
+    drop_features: []
+
+  gas_furnace:
+    add_features:
+      - design_heating_eff
+    drop_features:
+      - design_cooling_cop
+
+model_type_overrides:
+  ridge_poly:
+    transforms:
+      - name: add_log_transforms
+        params:
+          columns:
+            - roof_area
+            - sa_to_vol_ratio
+            - ext_wall_u_factor
+
+      - name: add_piecewise_feature
+        params:
+          column: gross_floor_area
+          breakpoint: 1200
+          left_column: gross_floor_area_le_1200
+          right_column: gross_floor_area_gt_1200
+          drop_original: true
+
+  plain_linear:
+    transforms: []
+
+  xgboost:
+    transforms: []
+
+usecase_overrides: []
+  # small_office_packaged_vav_5a:
+  #   add_features:
+  #     - sa_to_vol_ratio
+  #     - ACH_infiltration_cal
+  #   drop_features: []
+  #   transforms:
+  #     - add_log_ext_wall_u_factor
+  #   filters:
+  #     - column: window_u_factor
+  #       min_value: 0.1
+  #       max_value: 6.0
