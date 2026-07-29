@@ -1,6 +1,6 @@
 # ML179D Surrogate Modeling Pipeline
 
-This repository contains a scalable, schema-driven machine learning pipeline for building surrogate models based on EnergyPlus simulation data. The system is designed to support large-scale modeling across multiple building types, HVAC systems, and climate zones for 179D applications.
+This repository contains a scalable, schema-driven machine learning pipeline for building surrogate models based on EnergyPlus simulation data. The system is designed to support large-scale modeling across multiple building types, HVAC systems, and climate zones.
 
 ---
 

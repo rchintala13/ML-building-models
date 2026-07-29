@@ -1,0 +1,612 @@
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from ml179d.config import ModelConfig, validate_against_schema
+from ml179d.features.registry import (
+    FeatureContext,
+    TransformSpec,
+    apply_base_features,
+    apply_transforms,
+    get_base_feature,
+    get_transform,
+)
+from ml179d.pipeline import (
+    PipelineContext,
+    resolve_batch_path,
+    stage_catalog,
+    stage_dataset,
+    stage_scan,
+)
+from ml179d.schema import load_schema
+
+
+# ---------------------------------------------------------------
+# fixtures: a miniature project on disk
+# ---------------------------------------------------------------
+
+SCHEMA_YAML = """
+columns:
+  name:
+    role: row_id
+    required: true
+    dtype: str
+    sources:
+      - reporting_179_d.name
+  building_type:
+    role: id
+    required: true
+    dtype: str
+    sources:
+      - reporting_179_d.in_primary_bldg_type
+  climate_zone:
+    role: id
+    required: true
+    dtype: str
+    sources:
+      - reporting_179_d.in_weather_climate_zone
+  system_type:
+    role: id
+    required: true
+    dtype: str
+    sources_by_scenario:
+      proposed:
+        - support.in_hvac_system_type_proposed
+      baseline:
+        - support.in_hvac_system_type_proposed
+  gross_floor_area:
+    role: feature
+    required: true
+    dtype: float
+    sources:
+      - reporting_179_d.in_floor_area_m_2
+  number_of_floors:
+    role: feature
+    required: true
+    dtype: float
+    sources:
+      - reporting_179_d.in_number_of_floors
+  aspect_ratio:
+    role: feature
+    required: true
+    dtype: float
+    sources:
+      - reporting_179_d.in_ns_to_ew_ratio
+  roof_area:
+    role: feature
+    required: true
+    dtype: float
+    sources:
+      - reporting_179_d.in_roof_area_m_2
+  total_electricity_179d:
+    role: target
+    required: true
+    dtype: float
+    sources:
+      - reporting_179_d.out_electricity
+"""
+
+USECASE_SPACE_YAML = """
+usecase:
+  sep: "_"
+  aliases:
+    building_type:
+      SmallOffice: small_office
+    system_type:
+      PSZ-HP: PSZ-HP
+    climate_zone:
+      5A: CZ5A
+  disallow: []
+"""
+
+# roof_area is a simulated schema column; roof_area_cal and bldg_vol exist only
+# once the base feature functions run.
+MODEL_YAML = """
+base_features:
+  - add_roof_area
+  - add_bldg_volume
+
+target_sets:
+  electricity:
+    - total_electricity_179d
+
+base_feature_sets:
+  electricity:
+    - aspect_ratio
+    - number_of_floors
+    - gross_floor_area
+    - roof_area
+    - roof_area_cal
+
+system_overrides: {}
+
+model_type_overrides:
+  plain_linear:
+    transforms: []
+  ridge_poly:
+    transforms:
+      - name: add_log_transforms
+        params:
+          columns:
+            - roof_area_cal
+      - name: add_piecewise_feature
+        params:
+          column: gross_floor_area
+          breakpoint: 1200
+          drop_original: true
+
+usecase_overrides: {}
+"""
+
+USECASE_ID = "small_office_PSZ-HP_CZ5A"
+
+BATCH_FILES = {
+    "proposed_train": "batch1_proposed_training_2024_12_17_18_29_43_est.csv",
+    "proposed_test": "batch1_proposed_testing_2024_12_17_18_29_43_est.csv",
+    "baseline_train": "batch2_baseline_training_2024_12_17_18_29_43_est.csv",
+    "baseline_test": "batch2_baseline_testing_2024_12_17_18_29_43_est.csv",
+}
+
+
+def write_batch_csv(path: Path, n_rows: int = 5) -> None:
+    df = pd.DataFrame(
+        {
+            "reporting_179_d.name": [f"bldg_{i}" for i in range(n_rows)],
+            "reporting_179_d.in_primary_bldg_type": ["SmallOffice"] * n_rows,
+            "reporting_179_d.in_weather_climate_zone": ["5A"] * n_rows,
+            "support.in_hvac_system_type_proposed": ["PSZ-HP"] * n_rows,
+            "reporting_179_d.in_floor_area_m_2": [500.0 + 400 * i for i in range(n_rows)],
+            "reporting_179_d.in_number_of_floors": [1.0 + i % 3 for i in range(n_rows)],
+            "reporting_179_d.in_ns_to_ew_ratio": [1.5] * n_rows,
+            "reporting_179_d.in_roof_area_m_2": [450.0 + 300 * i for i in range(n_rows)],
+            "reporting_179_d.out_electricity": [1000.0 + 10 * i for i in range(n_rows)],
+            "some.unmapped_column": ["ignored"] * n_rows,
+        }
+    )
+    df.to_csv(path, index=False)
+
+
+@pytest.fixture
+def project(tmp_path: Path) -> dict:
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "schema.yaml").write_text(SCHEMA_YAML)
+    (configs / "usecase_space.yaml").write_text(USECASE_SPACE_YAML)
+    (configs / "model.yaml").write_text(MODEL_YAML)
+
+    raw = tmp_path / "data" / "raw"
+    raw.mkdir(parents=True)
+    for filename in BATCH_FILES.values():
+        write_batch_csv(raw / filename)
+
+    return {
+        "root": tmp_path,
+        "raw": raw,
+        "schema_path": configs / "schema.yaml",
+        "space_path": configs / "usecase_space.yaml",
+        "model_path": configs / "model.yaml",
+    }
+
+
+@pytest.fixture
+def ctx(project: dict) -> PipelineContext:
+    return PipelineContext.load(
+        schema_path=project["schema_path"],
+        usecase_space_path=project["space_path"],
+        model_config_path=project["model_path"],
+    )
+
+
+# ---------------------------------------------------------------
+# stage 1: scan
+# ---------------------------------------------------------------
+
+def test_stage_scan_builds_index(project, ctx):
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+
+    assert len(batch_index) == 4
+    assert set(batch_index["usecase_id"]) == {USECASE_ID}
+    assert set(batch_index["scenario"]) == {"proposed", "baseline"}
+    # 'training'/'testing' in the filename become 'train'/'test'
+    assert set(batch_index["split"]) == {"train", "test"}
+
+
+def test_stage_scan_skips_unrecognized_csv(project, ctx):
+    (project["raw"] / "notes_export.csv").write_text("a,b\n1,2\n")
+
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+
+    assert len(batch_index) == 4
+
+
+def test_stage_scan_strict_raises_on_unrecognized_csv(project, ctx):
+    (project["raw"] / "notes_export.csv").write_text("a,b\n1,2\n")
+
+    with pytest.raises(ValueError, match="Unrecognized batch filename"):
+        stage_scan(project["raw"], ctx=ctx, strict=True)
+
+
+def test_stage_scan_uses_cache(project, ctx):
+    cache = project["root"] / "data" / "interim" / "batch_index.parquet"
+
+    first = stage_scan(project["raw"], ctx=ctx, cache_path=cache)
+    assert cache.exists()
+
+    # deleting the raw files must not matter once cached
+    for filename in BATCH_FILES.values():
+        (project["raw"] / filename).unlink()
+
+    second = stage_scan(project["raw"], ctx=ctx, cache_path=cache)
+    pd.testing.assert_frame_equal(first, second)
+
+
+# ---------------------------------------------------------------
+# stage 2: catalog
+# ---------------------------------------------------------------
+
+def test_stage_catalog_complete_usecase(project, ctx):
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+    report = stage_catalog(batch_index)
+
+    assert report.trainable_usecase_ids == [USECASE_ID]
+    assert report.incomplete.empty
+
+    record = report.catalog[USECASE_ID]
+    assert record.proposed_train == 1
+    assert record.baseline_train == 2
+
+
+def test_stage_catalog_reports_incomplete_usecase(project, ctx):
+    (project["raw"] / BATCH_FILES["baseline_test"]).unlink()
+
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+    report = stage_catalog(batch_index)
+
+    assert report.catalog == {}
+    assert list(report.incomplete["usecase_id"]) == [USECASE_ID]
+    assert "baseline_test" in report.incomplete.iloc[0]["missing_slots"]
+
+
+def test_stage_catalog_compares_against_expected(project, ctx):
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+    expected = ctx.expected_usecase_ids(project["space_path"])
+
+    report = stage_catalog(batch_index, expected_usecase_ids=expected)
+
+    assert expected == [USECASE_ID]
+    assert report.not_in_data == []
+    assert report.not_expected == []
+
+
+def test_stage_catalog_flags_usecase_absent_from_data(project, ctx):
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+
+    report = stage_catalog(
+        batch_index,
+        expected_usecase_ids=[USECASE_ID, "small_office_PSZ-HP_CZ1A"],
+    )
+
+    assert report.not_in_data == ["small_office_PSZ-HP_CZ1A"]
+
+
+def test_resolve_batch_path(project, ctx):
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+
+    path = resolve_batch_path(
+        batch_index, usecase_id=USECASE_ID, scenario="proposed", split="train"
+    )
+
+    assert path.name == BATCH_FILES["proposed_train"]
+
+    with pytest.raises(KeyError, match="No batch file"):
+        resolve_batch_path(
+            batch_index, usecase_id=USECASE_ID, scenario="proposed", split="nope"
+        )
+
+
+# ---------------------------------------------------------------
+# stage 3: dataset
+# ---------------------------------------------------------------
+
+def build(project, ctx, model_type: str):
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+    return stage_dataset(
+        batch_index,
+        ctx=ctx,
+        usecase_id=USECASE_ID,
+        scenario="proposed",
+        split="train",
+        target_set="electricity",
+        model_type=model_type,
+    )
+
+
+def test_stage_dataset_plain_linear(project, ctx):
+    data = build(project, ctx, "plain_linear")
+
+    assert data.feature_names == [
+        "aspect_ratio",
+        "number_of_floors",
+        "gross_floor_area",
+        "roof_area",
+        "roof_area_cal",
+    ]
+    assert data.target_names == ["total_electricity_179d"]
+    assert len(data) == 5
+    # unmapped raw columns and row_id must not leak into X
+    assert "some.unmapped_column" not in data.X.columns
+    assert "name" not in data.X.columns
+
+
+def test_stage_dataset_computes_derived_features(project, ctx):
+    data = build(project, ctx, "plain_linear")
+
+    # roof_area_cal is calculated; roof_area comes from the CSV. Both survive,
+    # and they must not be equal or the '_cal' distinction is pointless.
+    expected = data.X["gross_floor_area"] / data.X["number_of_floors"]
+    pd.testing.assert_series_equal(
+        data.X["roof_area_cal"], expected, check_names=False
+    )
+    assert not data.X["roof_area"].equals(data.X["roof_area_cal"])
+
+
+def test_stage_dataset_applies_model_type_transforms(project, ctx):
+    data = build(project, ctx, "ridge_poly")
+
+    # add_log_transforms appends, add_piecewise_feature replaces
+    assert "roof_area_cal_log" in data.feature_names
+    assert "gross_floor_area" not in data.feature_names
+    assert "gross_floor_area_le_1200" in data.feature_names
+    assert "gross_floor_area_gt_1200" in data.feature_names
+    assert data.target_names == ["total_electricity_179d"]
+
+
+def test_stage_dataset_missing_derived_feature_raises(project, ctx):
+    """
+    roof_area is selected but add_roof_area is not listed in base_features.
+    """
+    project["model_path"].write_text(
+        MODEL_YAML.replace("  - add_roof_area\n  - add_bldg_volume", "  []")
+    )
+    ctx2 = PipelineContext.load(
+        schema_path=project["schema_path"],
+        usecase_space_path=project["space_path"],
+        model_config_path=project["model_path"],
+    )
+
+    with pytest.raises(KeyError, match="base_features"):
+        build(project, ctx2, "plain_linear")
+
+
+def test_stage_dataset_unknown_slot_raises(project, ctx):
+    batch_index = stage_scan(project["raw"], ctx=ctx)
+
+    with pytest.raises(KeyError, match="No batch file"):
+        stage_dataset(
+            batch_index,
+            ctx=ctx,
+            usecase_id="does_not_exist",
+            scenario="proposed",
+            split="train",
+            target_set="electricity",
+            model_type="plain_linear",
+        )
+
+
+# ---------------------------------------------------------------
+# config resolution
+# ---------------------------------------------------------------
+
+def test_resolve_applies_system_override(tmp_path: Path):
+    path = tmp_path / "model.yaml"
+    path.write_text(
+        MODEL_YAML.replace(
+            "system_overrides: {}",
+            "system_overrides:\n"
+            "  PSZ-HP:\n"
+            "    add_features:\n"
+            "      - bldg_vol\n"
+            "    drop_features:\n"
+            "      - aspect_ratio\n",
+        )
+    )
+    config = ModelConfig.from_yaml(path)
+
+    recipe = config.resolve(
+        target_set="electricity", model_type="plain_linear", system_type_slug="PSZ-HP"
+    )
+
+    assert "bldg_vol" in recipe.features
+    assert "aspect_ratio" not in recipe.features
+
+
+def test_resolve_ignores_non_matching_system_override(tmp_path: Path):
+    path = tmp_path / "model.yaml"
+    path.write_text(MODEL_YAML)
+    config = ModelConfig.from_yaml(path)
+
+    recipe = config.resolve(
+        target_set="electricity",
+        model_type="plain_linear",
+        system_type_slug="not_a_real_system",
+    )
+
+    assert list(recipe.features) == list(config.base_feature_sets["electricity"])
+
+
+def test_resolve_rejects_dropping_absent_feature(tmp_path: Path):
+    path = tmp_path / "model.yaml"
+    path.write_text(
+        MODEL_YAML.replace(
+            "system_overrides: {}",
+            "system_overrides:\n"
+            "  PSZ-HP:\n"
+            "    drop_features:\n"
+            "      - not_a_feature\n",
+        )
+    )
+    config = ModelConfig.from_yaml(path)
+
+    with pytest.raises(ValueError, match="not in the current feature list"):
+        config.resolve(
+            target_set="electricity",
+            model_type="plain_linear",
+            system_type_slug="PSZ-HP",
+        )
+
+
+def test_resolve_rejects_unknown_model_type(tmp_path: Path):
+    path = tmp_path / "model.yaml"
+    path.write_text(MODEL_YAML)
+    config = ModelConfig.from_yaml(path)
+
+    with pytest.raises(KeyError, match="Unknown model_type"):
+        config.resolve(target_set="electricity", model_type="random_forest")
+
+
+def test_usecase_override_appends_transforms_and_filters(tmp_path: Path):
+    path = tmp_path / "model.yaml"
+    path.write_text(
+        MODEL_YAML.replace(
+            "usecase_overrides: {}",
+            "usecase_overrides:\n"
+            f"  {USECASE_ID}:\n"
+            "    filters:\n"
+            "      - column: gross_floor_area\n"
+            "        min_value: 0.0\n"
+            "        max_value: 1e9\n",
+        )
+    )
+    config = ModelConfig.from_yaml(path)
+
+    recipe = config.resolve(
+        target_set="electricity", model_type="ridge_poly", usecase_id=USECASE_ID
+    )
+
+    assert len(recipe.filters) == 1
+    assert recipe.filters[0].column == "gross_floor_area"
+    # model-type transforms are preserved
+    assert [t.name for t in recipe.transforms] == [
+        "add_log_transforms",
+        "add_piecewise_feature",
+    ]
+
+
+def test_from_yaml_rejects_non_empty_list_usecase_overrides(tmp_path: Path):
+    path = tmp_path / "model.yaml"
+    path.write_text(
+        MODEL_YAML.replace("usecase_overrides: {}", "usecase_overrides:\n  - a\n")
+    )
+
+    with pytest.raises(ValueError, match="must be a mapping"):
+        ModelConfig.from_yaml(path)
+
+
+def test_validate_against_schema_catches_typo(tmp_path: Path):
+    schema_path = tmp_path / "schema.yaml"
+    schema_path.write_text(SCHEMA_YAML)
+    model_path = tmp_path / "model.yaml"
+    model_path.write_text(MODEL_YAML.replace("    - aspect_ratio", "    - aspct_ratio"))
+
+    with pytest.raises(ValueError, match="aspct_ratio"):
+        validate_against_schema(
+            ModelConfig.from_yaml(model_path), load_schema(schema_path)
+        )
+
+
+def test_validate_against_schema_catches_unknown_base_feature(tmp_path: Path):
+    schema_path = tmp_path / "schema.yaml"
+    schema_path.write_text(SCHEMA_YAML)
+    model_path = tmp_path / "model.yaml"
+    model_path.write_text(MODEL_YAML.replace("  - add_roof_area", "  - add_roof_are"))
+
+    with pytest.raises(ValueError, match="unknown function"):
+        validate_against_schema(
+            ModelConfig.from_yaml(model_path), load_schema(schema_path)
+        )
+
+
+# ---------------------------------------------------------------
+# registry
+# ---------------------------------------------------------------
+
+def test_registry_rejects_unknown_names():
+    with pytest.raises(KeyError, match="Unknown base feature"):
+        get_base_feature("add_nothing")
+
+    with pytest.raises(KeyError, match="Unknown transform"):
+        get_transform("add_nothing")
+
+
+CONTEXT = FeatureContext(USECASE_ID, "small_office", "PSZ-HP", "CZ5A")
+
+
+def base_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "gross_floor_area": [1000.0],
+            "number_of_floors": [2.0],
+            "aspect_ratio": [1.5],
+            "roof_area": [450.0],
+        }
+    )
+
+
+def test_add_roof_area_does_not_overwrite_simulated_roof_area():
+    """
+    The calculated value lands in roof_area_cal so the simulated column survives.
+    """
+    out = apply_base_features(base_df(), ["add_roof_area"], CONTEXT)
+
+    assert out["roof_area_cal"].iloc[0] == 500.0
+    assert out["roof_area"].iloc[0] == 450.0
+
+
+def test_bldg_volume_reads_simulated_roof_area():
+    out = apply_base_features(base_df(), ["add_bldg_volume"], CONTEXT)
+
+    # 450 * 2, i.e. the CSV value -- not gross_floor_area
+    assert out["bldg_vol"].iloc[0] == 900.0
+
+    # and it fails outright when the simulated column is absent
+    with pytest.raises(KeyError):
+        apply_base_features(
+            base_df().drop(columns=["roof_area"]), ["add_bldg_volume"], CONTEXT
+        )
+
+
+def test_sa_to_vol_ratio_needs_the_slug_not_the_raw_value():
+    """
+    add_sa_to_vol_ratio matches substrings of the lowered building type, so
+    'SmallOffice' would not match. FeatureContext carries the slug for this.
+    """
+    ok = apply_base_features(base_df(), ["add_sa_to_vol_ratio"], CONTEXT)
+    assert "sa_to_vol_ratio" in ok.columns
+
+    with pytest.raises(ValueError, match="Unknown building type"):
+        apply_base_features(
+            base_df(),
+            ["add_sa_to_vol_ratio"],
+            FeatureContext(USECASE_ID, "SmallOffice", "PSZ-HP", "CZ5A"),
+        )
+
+
+def test_apply_transforms_runs_in_order():
+    df = pd.DataFrame({"gross_floor_area": [800.0, 2000.0]})
+
+    out = apply_transforms(
+        df,
+        [
+            TransformSpec("add_log_transforms", {"columns": ["gross_floor_area"]}),
+            TransformSpec(
+                "add_piecewise_feature",
+                {"column": "gross_floor_area", "breakpoint": 1200, "drop_original": True},
+            ),
+        ],
+    )
+
+    assert "gross_floor_area_log" in out.columns
+    assert "gross_floor_area" not in out.columns
+    assert list(out["gross_floor_area_le_1200"]) == [800.0, 1200.0]
+    assert list(out["gross_floor_area_gt_1200"]) == [0.0, 800.0]

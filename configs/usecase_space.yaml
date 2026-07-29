@@ -36,3 +36,18 @@ usecase:
       6B: CZ6B
       7A: CZ7
       8A: CZ8
+
+  # Combinations to exclude from the BT x ST x CZ product (see generator.make_validity_rule).
+  # A usecase is dropped if it matches ANY entry below; within one entry EVERY field
+  # listed must match, and omitted fields mean "any value".
+  # NOTE: use raw BEM values here (SmallOffice, "VRF DOAS", 1A), not slugs.
+  #
+  # Example:
+  # disallow:
+  #   # one building/system pair, across all climate zones
+  #   - building_type: SmallOffice
+  #     system_type: VRF DOAS
+  #   # one system type in specific climate zones, any building type
+  #   - system_type: PSZ-AC with gas coil
+  #     climate_zone: [1A, 2A, 2B]
+  disallow: []

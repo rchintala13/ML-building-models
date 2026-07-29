@@ -1,5 +1,22 @@
 version: 1
 
+# Derived columns computed on the canonical DataFrame BEFORE feature selection.
+# Names must exist in features/registry.py BASE_FEATURES.
+#
+# The '_cal' outputs are calculated counterparts to simulated schema columns,
+# not replacements:
+#   add_roof_area        -> roof_area_cal        (vs simulated roof_area)
+#   add_ach_infiltration -> ACH_infiltration_cal (vs simulated ACHInfiltration)
+#   add_bldg_volume      -> bldg_vol             (reads simulated roof_area)
+#   add_sa_to_vol_ratio  -> sa_to_vol_ratio      (reads simulated roof_area)
+#
+# Anything listed here must also appear in a base_feature_set to reach the model.
+base_features: []
+  # - add_roof_area
+  # - add_bldg_volume
+  # - add_ach_infiltration
+  # - add_sa_to_vol_ratio
+
 target_sets:
   electricity:
     - total_electricity_179d
@@ -46,6 +63,10 @@ base_feature_sets:
     - water_heating_ua
     - swh_fuel_type
 
+# Keyed by SLUGGED system_type (see usecase_space.yaml aliases):
+# HP_RTU, MSHP_DOAS, PSZ-AC_with_electric_coil, PSZ-AC_with_gas_coil,
+# PSZ-HP, VRF_DOAS.
+# WARNING: the two keys below match none of those, so they never fire today.
 system_overrides:
   packaged_vav:
     add_features:
@@ -82,7 +103,8 @@ model_type_overrides:
   xgboost:
     transforms: []
 
-usecase_overrides: []
+# Keyed by usecase_id. Mapping, not a list.
+usecase_overrides: {}
   # small_office_packaged_vav_5a:
   #   add_features:
   #     - sa_to_vol_ratio

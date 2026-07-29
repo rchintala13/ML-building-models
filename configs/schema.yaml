@@ -74,12 +74,12 @@ columns:
       - reporting_179_d.in_floor_area_m_2
 
   roof_area:
-  role: feature
-  required: true
-  dtype: float
-  unit: m^2
-  sources:
-    - reporting_179_d.in_roof_area_m_2
+    role: feature
+    required: true
+    dtype: float
+    unit: m^2
+    sources:
+      - reporting_179_d.in_roof_area_m_2
 
   ext_wall_surface_area:
     role: feature
