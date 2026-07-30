@@ -9,11 +9,13 @@ import pandas as pd
 
 from ml179d.io.artifacts import (
     metrics_rows,
+    model_dir,
     save_metrics,
     save_model,
     save_savings,
     savings_row,
 )
+from ml179d.serving import build_manifest, save_manifest
 from ml179d.pipeline import PipelineContext, stage_catalog, stage_scan
 from ml179d.selection import (
     ALL,
@@ -220,6 +222,56 @@ def build_plan(args: argparse.Namespace, ctx: PipelineContext) -> Tuple[JobPlan,
     return plan, batch_index
 
 
+def write_manifest(result, *, ctx: PipelineContext, output_dir: Path) -> Path:
+    """
+    Write the serving manifest next to a usecase's fitted models.
+    """
+    proposed = result.models["proposed"]
+    recipe = ctx.model_config.resolve(
+        target_set=result.target_set,
+        model_type=result.model_type,
+        usecase_id=result.usecase_id,
+        scenario="proposed",
+    )
+
+    building_type_slug, system_type_slug, climate_zone_slug = ctx.resolver.parse_id(
+        result.usecase_id
+    )
+
+    categories = {}
+    for name in ctx.schema.categorical_columns():
+        estimator = proposed.estimator
+        steps = getattr(estimator, "named_steps", {})
+        if "encode" in steps:
+            encoder = steps["encode"].named_transformers_["categorical"]
+            columns = steps["encode"].transformers_[0][2]
+            for column, values in zip(columns, encoder.named_steps["onehot"].categories_):
+                categories[column] = [str(v) for v in values]
+        break
+
+    manifest = build_manifest(
+        models=result.models,
+        recipe=recipe,
+        usecase_id=result.usecase_id,
+        building_type_slug=building_type_slug,
+        system_type_slug=system_type_slug,
+        climate_zone_slug=climate_zone_slug,
+        schema_units={n: c.unit for n, c in ctx.schema.columns.items() if c.unit},
+        schema_dtypes={n: c.dtype for n, c in ctx.schema.columns.items() if c.dtype},
+        categories=categories,
+    )
+
+    return save_manifest(
+        manifest,
+        directory=model_dir(
+            output_dir,
+            usecase_id=result.usecase_id,
+            target_set=result.target_set,
+            model_type=result.model_type,
+        ),
+    )
+
+
 def run_job(
     job: Job,
     *,
@@ -248,6 +300,9 @@ def run_job(
         for model in result.models.values():
             save_model(model, output_root=output_dir)
             rows.extend(metrics_rows(model))
+
+        # The serving contract only makes sense with both scenarios present.
+        write_manifest(result, ctx=ctx, output_dir=output_dir)
 
         if result.savings is not None:
             rows.append(savings_row(result.savings))

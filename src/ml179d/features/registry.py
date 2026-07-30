@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Mapping, Sequence
+from typing import Any, Callable, Dict, Mapping, Sequence, Tuple
 
 import pandas as pd
 
@@ -69,7 +69,67 @@ BASE_FEATURES: Dict[str, BaseFeatureFn] = {
     "add_window_area": lambda df, ctx: eng.add_window_area(
         df, building_type=ctx.building_type_slug
     ),
+    "add_erv_indicator": lambda df, ctx: eng.add_erv_indicator(df),
 }
+
+
+# Columns each base feature reads and writes. Declared rather than inferred so
+# that the serving manifest can state which values a user must supply, and so
+# ordering mistakes are caught before a model is fitted.
+BASE_FEATURE_INPUTS: Dict[str, Tuple[str, ...]] = {
+    "add_roof_area": ("gross_floor_area", "number_of_floors"),
+    "add_bldg_volume": ("roof_area", "number_of_floors"),
+    "add_ach_infiltration": ("gross_floor_area", "number_of_floors", "aspect_ratio"),
+    "add_sa_to_vol_ratio": ("roof_area_cal", "aspect_ratio", "number_of_floors"),
+    "add_ext_wall_surface_area": (
+        "gross_floor_area",
+        "number_of_floors",
+        "aspect_ratio",
+        "window_wall_ratio",
+    ),
+    "add_window_area": (
+        "gross_floor_area",
+        "number_of_floors",
+        "aspect_ratio",
+        "window_wall_ratio",
+    ),
+    "add_erv_indicator": ("erv_sensible_cooling",),
+}
+
+BASE_FEATURE_OUTPUTS: Dict[str, Tuple[str, ...]] = {
+    "add_roof_area": ("roof_area_cal",),
+    "add_bldg_volume": ("bldg_vol",),
+    "add_ach_infiltration": ("ACH_infiltration_cal",),
+    "add_sa_to_vol_ratio": ("sa_to_vol_ratio",),
+    "add_ext_wall_surface_area": ("ext_wall_surface_area_cal",),
+    "add_window_area": ("window_area_cal",),
+    "add_erv_indicator": ("erv_present",),
+}
+
+
+def check_base_feature_order(names: Sequence[str]) -> None:
+    """
+    Verify each base feature's inputs are available when it runs.
+
+    An input is available if it is not produced by any base feature (it comes
+    from the CSV or from user input) or if its producer runs earlier.
+    """
+    produced_by = {
+        column: name
+        for name, columns in BASE_FEATURE_OUTPUTS.items()
+        for column in columns
+    }
+
+    available: set = set()
+    for name in names:
+        for column in BASE_FEATURE_INPUTS.get(name, ()):
+            if column in produced_by and column not in available:
+                raise ValueError(
+                    f"base_features order: '{name}' reads '{column}', which is "
+                    f"produced by '{produced_by[column]}'. List "
+                    f"'{produced_by[column]}' first."
+                )
+        available.update(BASE_FEATURE_OUTPUTS.get(name, ()))
 
 
 TRANSFORMS: Dict[str, Callable[..., pd.DataFrame]] = {
@@ -105,8 +165,12 @@ def apply_base_features(
     Note the '_cal' convention: add_roof_area writes 'roof_area_cal' and
     add_ach_infiltration writes 'ACH_infiltration_cal', which sit alongside the
     simulated 'roof_area' and 'ACHInfiltration' schema columns rather than
-    replacing them. add_bldg_volume and add_sa_to_vol_ratio read the SIMULATED
-    'roof_area', so they depend on the schema column, not on add_roof_area.
+    replacing them.
+
+    Ordering constraint: add_sa_to_vol_ratio reads 'roof_area_cal', so
+    add_roof_area must come first. Everything a served model depends on has to
+    be derivable from user inputs, which is why it no longer reads the
+    simulated 'roof_area'. add_bldg_volume still does.
     """
     for name in names:
         df = get_base_feature(name)(df, ctx)

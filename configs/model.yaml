@@ -8,11 +8,11 @@ version: 1
 #   add_roof_area        -> roof_area_cal        (vs simulated roof_area)
 #   add_ach_infiltration -> ACH_infiltration_cal (vs simulated ACHInfiltration)
 #   add_bldg_volume      -> bldg_vol             (reads simulated roof_area)
-#   add_sa_to_vol_ratio  -> sa_to_vol_ratio      (reads simulated roof_area)
+#   add_sa_to_vol_ratio  -> sa_to_vol_ratio      (reads roof_area_cal)
 #
 # Anything listed here must also appear in a base_feature_set to reach the model.
-# Order matters only through data dependencies: add_bldg_volume and
-# add_sa_to_vol_ratio read the SIMULATED roof_area column, not roof_area_cal.
+# ORDER MATTERS: add_sa_to_vol_ratio reads roof_area_cal, so add_roof_area must
+# be listed before it.
 base_features:
   - add_roof_area
   #- add_bldg_volume
@@ -23,6 +23,10 @@ base_features:
   # serving on the same footing.
   - add_ext_wall_surface_area
   - add_window_area
+  # erv_sensible_cooling encodes "no ERV" as 0.0 in the proposed source and as
+  # the sentinel 999.0 in the baseline source, so the raw value is not
+  # comparable across scenarios. The binary flag is.
+  - add_erv_indicator
 
 # Row-level range filters, applied after base features and before feature
 # selection so they can reference simulated, derived or unselected columns.
@@ -79,9 +83,8 @@ base_feature_sets:
     - design_cooling_cop
     - design_heating_cop
     - design_heating_eff
-    - erv_sensible_cooling
+    - erv_present
     - lpd
-    - fan_power
     # derived, produced by base_features above
     - roof_area_cal
     - ACH_infiltration_cal
@@ -115,16 +118,16 @@ base_feature_sets:
 # PSZ-HP, VRF_DOAS.
 # WARNING: the two keys below match none of those, so they never fire today.
 system_overrides:
-  packaged_vav:
-    add_features:
-      - fan_power
-    drop_features: []
+  # HP_RTU:
+  #   add_features:
+  #     - bldg_vol
+  #   drop_features: []
 
-  gas_furnace:
-    add_features:
-      - design_heating_eff
-    drop_features:
-      - design_cooling_cop
+  # PSZ-AC_with_gas_coil:
+  #   add_features:
+  #     - design_heating_eff
+  #   drop_features:
+  #     - design_cooling_cop
 
 # Estimator per model_type. 'kind' selects the builder in models/factory.py;
 # 'params' are passed through to the underlying estimator.

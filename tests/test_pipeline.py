@@ -437,15 +437,36 @@ def test_sa_to_vol_ratio_needs_the_slug_not_the_raw_value():
     add_sa_to_vol_ratio matches substrings of the lowered building type, so
     'SmallOffice' would not match. FeatureContext carries the slug for this.
     """
-    ok = apply_base_features(base_df(), ["add_sa_to_vol_ratio"], CONTEXT)
+    steps = ["add_roof_area", "add_sa_to_vol_ratio"]
+
+    ok = apply_base_features(base_df(), steps, CONTEXT)
     assert "sa_to_vol_ratio" in ok.columns
 
     with pytest.raises(ValueError, match="Unknown building type"):
         apply_base_features(
             base_df(),
-            ["add_sa_to_vol_ratio"],
+            steps,
             FeatureContext(USECASE_ID, "SmallOffice", "PSZ-HP", "CZ5A"),
         )
+
+
+def test_sa_to_vol_ratio_uses_the_calculated_roof_area():
+    """
+    The web calculator has no simulated roof_area, so this feature must derive
+    from roof_area_cal and fail loudly if add_roof_area has not run.
+    """
+    with pytest.raises(KeyError, match="needs 'roof_area_cal'"):
+        apply_base_features(base_df(), ["add_sa_to_vol_ratio"], CONTEXT)
+
+    # a misleading simulated roof_area must not be picked up instead
+    df = base_df()
+    df["roof_area"] = 99999.0
+    out = apply_base_features(df, ["add_roof_area", "add_sa_to_vol_ratio"], CONTEXT)
+
+    expected_footprint = df["gross_floor_area"] / df["number_of_floors"]
+    assert out["roof_area_cal"].iloc[0] == expected_footprint.iloc[0]
+    # value follows roof_area_cal (500), not roof_area (99999)
+    assert out["sa_to_vol_ratio"].iloc[0] > 0.1
 
 
 def test_apply_transforms_runs_in_order():
@@ -566,3 +587,54 @@ def test_window_area_is_order_independent():
     )
 
     assert alone["window_area_cal"].iloc[0] == after["window_area_cal"].iloc[0]
+
+
+# ---------------------------------------------------------------
+# erv indicator
+# ---------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        (0.0, 0.0),      # proposed encoding for "no ERV"
+        (999.0, 0.0),    # baseline sentinel for the same thing
+        (0.75, 1.0),
+        (0.82, 1.0),
+        (None, 0.0),     # missing treated as absent
+    ],
+)
+def test_erv_indicator_binarizes(raw, expected):
+    df = pd.DataFrame({"erv_sensible_cooling": [raw]})
+    ctx = FeatureContext("u", "small_office", "PSZ-HP", "CZ5A")
+
+    out = apply_base_features(df, ["add_erv_indicator"], ctx)
+
+    assert out["erv_present"].iloc[0] == expected
+
+
+def test_erv_indicator_makes_scenarios_agree():
+    """
+    The whole point: the proposed encoding (0.0) and the baseline sentinel
+    (999.0) must collapse to the same feature value, or a baseline model fitted
+    on 999.0 explodes when served a proposed 0.0.
+    """
+    ctx = FeatureContext("u", "retail_stripmall", "HP_RTU", "CZ1A")
+
+    proposed = apply_base_features(
+        pd.DataFrame({"erv_sensible_cooling": [0.0]}), ["add_erv_indicator"], ctx
+    )
+    baseline = apply_base_features(
+        pd.DataFrame({"erv_sensible_cooling": [999.0]}), ["add_erv_indicator"], ctx
+    )
+
+    assert proposed["erv_present"].iloc[0] == baseline["erv_present"].iloc[0] == 0.0
+
+
+def test_erv_indicator_keeps_the_source_column():
+    df = pd.DataFrame({"erv_sensible_cooling": [0.75]})
+    ctx = FeatureContext("u", "small_office", "PSZ-HP", "CZ5A")
+
+    out = apply_base_features(df, ["add_erv_indicator"], ctx)
+
+    assert out["erv_sensible_cooling"].iloc[0] == 0.75
+    assert out["erv_present"].iloc[0] == 1.0

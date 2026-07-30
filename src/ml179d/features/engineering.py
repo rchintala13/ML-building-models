@@ -43,6 +43,14 @@ def add_sa_to_vol_ratio(
     *,
     building_type: str,
 ) -> pd.DataFrame:
+    """
+    Surface-area-to-volume ratio.
+
+    Reads roof_area_cal, the calculated per-floor footprint, rather than the
+    simulated roof_area: the web calculator only has user inputs, so a feature
+    depending on a simulated column could not be served. Requires add_roof_area
+    to have run first.
+    """
     df = df.copy()
 
     # safer building type check
@@ -55,16 +63,48 @@ def add_sa_to_vol_ratio(
     else:
         raise ValueError(f"Unknown building type for SA/V ratio: {building_type}")
 
+    if "roof_area_cal" not in df.columns:
+        raise KeyError(
+            "add_sa_to_vol_ratio needs 'roof_area_cal'; list add_roof_area "
+            "before add_sa_to_vol_ratio in base_features."
+        )
+
     df["aspect_ratio"] = df["aspect_ratio"].replace(0, 1.9)
 
-    term1 = np.sqrt(df["aspect_ratio"] / df["roof_area"])
-    term2 = np.sqrt(1.0 / (df["aspect_ratio"] * df["roof_area"]))
+    term1 = np.sqrt(df["aspect_ratio"] / df["roof_area_cal"])
+    term2 = np.sqrt(1.0 / (df["aspect_ratio"] * df["roof_area_cal"]))
 
     df["sa_to_vol_ratio"] = (
         2.0 * (term1 + term2) +
         (1.0 / (ceil_height * df["number_of_floors"]))
     )
 
+    return df
+
+
+# Values of erv_sensible_cooling that mean "no energy recovery ventilator".
+# The proposed source encodes absence as 0.0 and the baseline support column
+# as the sentinel 999.0, so the raw value is not comparable across scenarios.
+ERV_ABSENT_VALUES = (0.0, 999.0)
+
+
+def add_erv_indicator(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Binary 'is there an ERV' flag derived from erv_sensible_cooling.
+
+    0.0 and 999.0 both mean no ERV and become 0; any genuine effectiveness
+    fraction becomes 1. Missing values are treated as absent.
+
+    This makes the feature identical across scenarios, which the raw column is
+    not: feeding a baseline model trained on 999.0 a proposed value of 0.0 put
+    it far outside its fitted range.
+    """
+    df = df.copy()
+
+    values = pd.to_numeric(df["erv_sensible_cooling"], errors="coerce")
+    absent = values.isna() | values.isin(ERV_ABSENT_VALUES)
+
+    df["erv_present"] = (~absent).astype(float)
     return df
 
 

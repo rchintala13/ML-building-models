@@ -313,6 +313,7 @@ def validate_against_schema(config: ModelConfig, schema: Schema) -> None:
         "sa_to_vol_ratio",
         "ext_wall_surface_area_cal",
         "window_area_cal",
+        "erv_present",
     }
     known = canonical | derived
 
@@ -334,6 +335,14 @@ def validate_against_schema(config: ModelConfig, schema: Schema) -> None:
                 f"base_features: unknown function '{name}', "
                 f"available {sorted(BASE_FEATURES)}"
             )
+
+    if not problems:
+        from ml179d.features.registry import check_base_feature_order
+
+        try:
+            check_base_feature_order(config.base_features)
+        except ValueError as exc:
+            problems.append(str(exc))
 
     if problems:
         raise ValueError(
