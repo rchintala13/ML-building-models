@@ -466,3 +466,103 @@ def test_apply_transforms_runs_in_order():
     assert "gross_floor_area" not in out.columns
     assert list(out["gross_floor_area_le_1200"]) == [800.0, 1200.0]
     assert list(out["gross_floor_area_gt_1200"]) == [0.0, 800.0]
+
+
+# ---------------------------------------------------------------
+# calculated envelope areas (servable counterparts)
+# ---------------------------------------------------------------
+
+def test_calculated_envelope_areas_split_the_gross_wall():
+    """
+    ext_wall_surface_area_cal + window_area_cal must reconstitute the gross
+    wall area, since one is (1-WWR) and the other WWR of the same quantity.
+    """
+    df = pd.DataFrame(
+        {
+            "gross_floor_area": [1000.0, 2400.0],
+            "number_of_floors": [1.0, 2.0],
+            "aspect_ratio": [1.5, 2.0],
+            "window_wall_ratio": [0.3, 0.4],
+        }
+    )
+    ctx = FeatureContext("u", "small_office", "PSZ-HP", "CZ5A")
+
+    out = apply_base_features(
+        df, ["add_ext_wall_surface_area", "add_window_area"], ctx
+    )
+
+    gross = out["ext_wall_surface_area_cal"] + out["window_area_cal"]
+    ratio = out["window_area_cal"] / gross
+
+    assert (out["ext_wall_surface_area_cal"] > 0).all()
+    pd.testing.assert_series_equal(
+        ratio, df["window_wall_ratio"], check_names=False
+    )
+
+
+def test_calculated_envelope_areas_depend_on_building_type():
+    """
+    Retail has a taller floor-to-floor height, so the same floor plan yields
+    more wall area.
+    """
+    df = pd.DataFrame(
+        {
+            "gross_floor_area": [1000.0],
+            "number_of_floors": [1.0],
+            "aspect_ratio": [1.5],
+            "window_wall_ratio": [0.3],
+        }
+    )
+
+    office = apply_base_features(
+        df, ["add_ext_wall_surface_area"],
+        FeatureContext("u", "small_office", "PSZ-HP", "CZ5A"),
+    )
+    retail = apply_base_features(
+        df, ["add_ext_wall_surface_area"],
+        FeatureContext("u", "retail_stripmall", "HP_RTU", "CZ5A"),
+    )
+
+    assert (
+        retail["ext_wall_surface_area_cal"].iloc[0]
+        > office["ext_wall_surface_area_cal"].iloc[0]
+    )
+
+
+def test_calculated_envelope_area_rejects_unknown_building_type():
+    df = pd.DataFrame(
+        {
+            "gross_floor_area": [1000.0],
+            "number_of_floors": [1.0],
+            "aspect_ratio": [1.5],
+            "window_wall_ratio": [0.3],
+        }
+    )
+
+    with pytest.raises(ValueError, match="Unknown building type for floor height"):
+        apply_base_features(
+            df, ["add_ext_wall_surface_area"],
+            FeatureContext("u", "warehouse", "HP_RTU", "CZ5A"),
+        )
+
+
+def test_window_area_is_order_independent():
+    """
+    add_window_area must not depend on add_ext_wall_surface_area having run.
+    """
+    df = pd.DataFrame(
+        {
+            "gross_floor_area": [1500.0],
+            "number_of_floors": [2.0],
+            "aspect_ratio": [1.8],
+            "window_wall_ratio": [0.35],
+        }
+    )
+    ctx = FeatureContext("u", "retail_stripmall", "HP_RTU", "CZ5A")
+
+    alone = apply_base_features(df, ["add_window_area"], ctx)
+    after = apply_base_features(
+        df, ["add_ext_wall_surface_area", "add_window_area"], ctx
+    )
+
+    assert alone["window_area_cal"].iloc[0] == after["window_area_cal"].iloc[0]

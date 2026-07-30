@@ -306,7 +306,14 @@ def validate_against_schema(config: ModelConfig, schema: Schema) -> None:
     canonical = set(schema.columns)
     # Columns that only exist after base features run. The '_cal' names are
     # calculated counterparts to simulated schema columns, not replacements.
-    derived = {"roof_area_cal", "bldg_vol", "ACH_infiltration_cal", "sa_to_vol_ratio"}
+    derived = {
+        "roof_area_cal",
+        "bldg_vol",
+        "ACH_infiltration_cal",
+        "sa_to_vol_ratio",
+        "ext_wall_surface_area_cal",
+        "window_area_cal",
+    }
     known = canonical | derived
 
     problems: List[str] = []

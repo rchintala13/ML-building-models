@@ -63,6 +63,12 @@ BASE_FEATURES: Dict[str, BaseFeatureFn] = {
     "add_sa_to_vol_ratio": lambda df, ctx: eng.add_sa_to_vol_ratio(
         df, building_type=ctx.building_type_slug
     ),
+    "add_ext_wall_surface_area": lambda df, ctx: eng.add_ext_wall_surface_area(
+        df, building_type=ctx.building_type_slug
+    ),
+    "add_window_area": lambda df, ctx: eng.add_window_area(
+        df, building_type=ctx.building_type_slug
+    ),
 }
 
 

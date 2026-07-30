@@ -68,6 +68,74 @@ def add_sa_to_vol_ratio(
     return df
 
 
+def _floor_height_m(building_type: str) -> float:
+    """
+    Floor-to-floor height in metres, from the prototype building geometry.
+
+    Matches calculate_ext_wall_surface_area below. Accepts the slugged building
+    type ('small_office', 'retail_stripmall').
+    """
+    bt = building_type.lower()
+
+    if "small_office" in bt or "small office" in bt:
+        return 10 * 0.3048
+    if "retail" in bt:
+        return 17 * 0.3048
+
+    raise ValueError(f"Unknown building type for floor height: {building_type}")
+
+
+def _gross_ext_wall_area(df: pd.DataFrame, *, building_type: str) -> pd.Series:
+    """
+    Gross exterior wall area (windows included) from user-supplied geometry.
+
+    Treats the building as a rectangular prism with plan aspect ratio
+    'aspect_ratio' and per-floor area gross_floor_area / number_of_floors.
+    """
+    floor_height = _floor_height_m(building_type)
+    AF = df["gross_floor_area"] / df["number_of_floors"]
+
+    perimeter_term = np.sqrt(df["aspect_ratio"] * AF) + np.sqrt(AF / df["aspect_ratio"])
+
+    return 2 * floor_height * perimeter_term * df["number_of_floors"]
+
+
+def add_ext_wall_surface_area(
+    df: pd.DataFrame,
+    *,
+    building_type: str,
+) -> pd.DataFrame:
+    """
+    Net exterior wall area (gross minus glazing), computed from user inputs.
+
+    This is the servable counterpart to the simulated 'ext_wall_surface_area'
+    column: the web calculator only has user inputs, so training on the
+    calculated value avoids train/serve skew.
+    """
+    df = df.copy()
+    gross = _gross_ext_wall_area(df, building_type=building_type)
+    df["ext_wall_surface_area_cal"] = (1.0 - df["window_wall_ratio"]) * gross
+    return df
+
+
+def add_window_area(
+    df: pd.DataFrame,
+    *,
+    building_type: str,
+) -> pd.DataFrame:
+    """
+    Glazing area, computed from user inputs.
+
+    Derived from the gross wall area directly rather than from
+    ext_wall_surface_area_cal, so it does not depend on step order and does not
+    divide by (1 - window_wall_ratio).
+    """
+    df = df.copy()
+    gross = _gross_ext_wall_area(df, building_type=building_type)
+    df["window_area_cal"] = df["window_wall_ratio"] * gross
+    return df
+
+
 # ============================================================
 # USER INPUT CALCULATIONS (optional, separate context)
 # ============================================================
