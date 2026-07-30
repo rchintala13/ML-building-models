@@ -204,6 +204,10 @@ def resolve_batch_path(
 class TrainingData:
     """
     The pipeline's output and the modeling layer's input.
+
+    X and y are indexed by the row_id column ('name'). That index is load
+    bearing: a building in the proposed batch has the same name in the baseline
+    batch, and savings are computed by joining the two on it. Never reset it.
     """
     X: pd.DataFrame
     y: pd.DataFrame
@@ -220,8 +224,35 @@ class TrainingData:
     def target_names(self) -> List[str]:
         return list(self.y.columns)
 
+    @property
+    def row_ids(self) -> pd.Index:
+        """
+        Building identifiers, shared across scenarios.
+        """
+        return self.X.index
+
     def __len__(self) -> int:
         return len(self.X)
+
+
+def _validate_row_index(df: pd.DataFrame, *, row_id_col: str, usecase_id: str, scenario: str) -> None:
+    """
+    The row index carries the building identity used to pair proposed with
+    baseline. A missing or duplicated index would silently misalign savings,
+    so both are hard errors rather than warnings.
+    """
+    if df.index.name != row_id_col:
+        raise ValueError(
+            f"usecase '{usecase_id}' scenario '{scenario}': expected the DataFrame "
+            f"to be indexed by '{row_id_col}', got index name {df.index.name!r}."
+        )
+
+    if not df.index.is_unique:
+        duplicates = df.index[df.index.duplicated()].unique().tolist()
+        raise ValueError(
+            f"usecase '{usecase_id}' scenario '{scenario}': duplicate {row_id_col} "
+            f"values {duplicates[:5]}. Row ids must be unique to pair scenarios."
+        )
 
 
 def _apply_filters(df: pd.DataFrame, filters: Tuple[FilterSpec, ...]) -> pd.DataFrame:
@@ -300,6 +331,15 @@ def stage_dataset(
         csv_path,
         schema=ctx.schema,
         scenario=scenario,
+    )
+
+    row_id_cols = ctx.schema.row_id_columns()
+    if not row_id_cols:
+        raise ValueError(
+            "Schema defines no row_id column; scenarios cannot be paired for savings."
+        )
+    _validate_row_index(
+        df, row_id_col=row_id_cols[0], usecase_id=usecase_id, scenario=scenario
     )
 
     # 2. base features

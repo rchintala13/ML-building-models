@@ -21,181 +21,7 @@ from ml179d.pipeline import (
 )
 from ml179d.schema import load_schema
 
-
-# ---------------------------------------------------------------
-# fixtures: a miniature project on disk
-# ---------------------------------------------------------------
-
-SCHEMA_YAML = """
-columns:
-  name:
-    role: row_id
-    required: true
-    dtype: str
-    sources:
-      - reporting_179_d.name
-  building_type:
-    role: id
-    required: true
-    dtype: str
-    sources:
-      - reporting_179_d.in_primary_bldg_type
-  climate_zone:
-    role: id
-    required: true
-    dtype: str
-    sources:
-      - reporting_179_d.in_weather_climate_zone
-  system_type:
-    role: id
-    required: true
-    dtype: str
-    sources_by_scenario:
-      proposed:
-        - support.in_hvac_system_type_proposed
-      baseline:
-        - support.in_hvac_system_type_proposed
-  gross_floor_area:
-    role: feature
-    required: true
-    dtype: float
-    sources:
-      - reporting_179_d.in_floor_area_m_2
-  number_of_floors:
-    role: feature
-    required: true
-    dtype: float
-    sources:
-      - reporting_179_d.in_number_of_floors
-  aspect_ratio:
-    role: feature
-    required: true
-    dtype: float
-    sources:
-      - reporting_179_d.in_ns_to_ew_ratio
-  roof_area:
-    role: feature
-    required: true
-    dtype: float
-    sources:
-      - reporting_179_d.in_roof_area_m_2
-  total_electricity_179d:
-    role: target
-    required: true
-    dtype: float
-    sources:
-      - reporting_179_d.out_electricity
-"""
-
-USECASE_SPACE_YAML = """
-usecase:
-  sep: "_"
-  aliases:
-    building_type:
-      SmallOffice: small_office
-    system_type:
-      PSZ-HP: PSZ-HP
-    climate_zone:
-      5A: CZ5A
-  disallow: []
-"""
-
-# roof_area is a simulated schema column; roof_area_cal and bldg_vol exist only
-# once the base feature functions run.
-MODEL_YAML = """
-base_features:
-  - add_roof_area
-  - add_bldg_volume
-
-target_sets:
-  electricity:
-    - total_electricity_179d
-
-base_feature_sets:
-  electricity:
-    - aspect_ratio
-    - number_of_floors
-    - gross_floor_area
-    - roof_area
-    - roof_area_cal
-
-system_overrides: {}
-
-model_type_overrides:
-  plain_linear:
-    transforms: []
-  ridge_poly:
-    transforms:
-      - name: add_log_transforms
-        params:
-          columns:
-            - roof_area_cal
-      - name: add_piecewise_feature
-        params:
-          column: gross_floor_area
-          breakpoint: 1200
-          drop_original: true
-
-usecase_overrides: {}
-"""
-
-USECASE_ID = "small_office_PSZ-HP_CZ5A"
-
-BATCH_FILES = {
-    "proposed_train": "batch1_proposed_training_2024_12_17_18_29_43_est.csv",
-    "proposed_test": "batch1_proposed_testing_2024_12_17_18_29_43_est.csv",
-    "baseline_train": "batch2_baseline_training_2024_12_17_18_29_43_est.csv",
-    "baseline_test": "batch2_baseline_testing_2024_12_17_18_29_43_est.csv",
-}
-
-
-def write_batch_csv(path: Path, n_rows: int = 5) -> None:
-    df = pd.DataFrame(
-        {
-            "reporting_179_d.name": [f"bldg_{i}" for i in range(n_rows)],
-            "reporting_179_d.in_primary_bldg_type": ["SmallOffice"] * n_rows,
-            "reporting_179_d.in_weather_climate_zone": ["5A"] * n_rows,
-            "support.in_hvac_system_type_proposed": ["PSZ-HP"] * n_rows,
-            "reporting_179_d.in_floor_area_m_2": [500.0 + 400 * i for i in range(n_rows)],
-            "reporting_179_d.in_number_of_floors": [1.0 + i % 3 for i in range(n_rows)],
-            "reporting_179_d.in_ns_to_ew_ratio": [1.5] * n_rows,
-            "reporting_179_d.in_roof_area_m_2": [450.0 + 300 * i for i in range(n_rows)],
-            "reporting_179_d.out_electricity": [1000.0 + 10 * i for i in range(n_rows)],
-            "some.unmapped_column": ["ignored"] * n_rows,
-        }
-    )
-    df.to_csv(path, index=False)
-
-
-@pytest.fixture
-def project(tmp_path: Path) -> dict:
-    configs = tmp_path / "configs"
-    configs.mkdir()
-    (configs / "schema.yaml").write_text(SCHEMA_YAML)
-    (configs / "usecase_space.yaml").write_text(USECASE_SPACE_YAML)
-    (configs / "model.yaml").write_text(MODEL_YAML)
-
-    raw = tmp_path / "data" / "raw"
-    raw.mkdir(parents=True)
-    for filename in BATCH_FILES.values():
-        write_batch_csv(raw / filename)
-
-    return {
-        "root": tmp_path,
-        "raw": raw,
-        "schema_path": configs / "schema.yaml",
-        "space_path": configs / "usecase_space.yaml",
-        "model_path": configs / "model.yaml",
-    }
-
-
-@pytest.fixture
-def ctx(project: dict) -> PipelineContext:
-    return PipelineContext.load(
-        schema_path=project["schema_path"],
-        usecase_space_path=project["space_path"],
-        model_config_path=project["model_path"],
-    )
+from conftest import BATCH_FILES, MODEL_YAML, N_ROWS, SCHEMA_YAML, USECASE_ID
 
 
 # ---------------------------------------------------------------
@@ -333,10 +159,13 @@ def test_stage_dataset_plain_linear(project, ctx):
         "roof_area_cal",
     ]
     assert data.target_names == ["total_electricity_179d"]
-    assert len(data) == 5
-    # unmapped raw columns and row_id must not leak into X
+    assert len(data) == N_ROWS
+    # unmapped raw columns and row_id must not leak into X as a column,
+    # but the row_id must survive as the index
     assert "some.unmapped_column" not in data.X.columns
     assert "name" not in data.X.columns
+    assert data.X.index.name == "name"
+    assert list(data.row_ids) == [f"bldg_{i}" for i in range(N_ROWS)]
 
 
 def test_stage_dataset_computes_derived_features(project, ctx):

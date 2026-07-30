@@ -111,6 +111,7 @@ class ModelConfig:
     system_overrides: Mapping[str, Mapping[str, Any]]
     model_type_overrides: Mapping[str, Mapping[str, Any]]
     usecase_overrides: Mapping[str, Mapping[str, Any]]
+    estimators: Mapping[str, Mapping[str, Any]]
 
     @staticmethod
     def from_yaml(path: Path) -> "ModelConfig":
@@ -132,6 +133,7 @@ class ModelConfig:
             system_overrides=cfg.get("system_overrides") or {},
             model_type_overrides=cfg.get("model_type_overrides") or {},
             usecase_overrides=usecase_overrides,
+            estimators=cfg.get("estimators") or {},
         )
 
     def resolve(

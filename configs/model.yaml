@@ -79,6 +79,32 @@ system_overrides:
     drop_features:
       - design_cooling_cop
 
+# Estimator per model_type. 'kind' selects the builder in models/factory.py;
+# 'params' are passed through to the underlying estimator.
+# Every key here must also appear in model_type_overrides below.
+estimators:
+  plain_linear:
+    kind: linear
+    params: {}
+
+  ridge_poly:
+    kind: ridge_poly
+    params:
+      degree: 2
+      alpha: 1.0
+      include_bias: false
+      interaction_only: false
+
+  xgboost:
+    kind: xgboost
+    params:
+      n_estimators: 400
+      max_depth: 5
+      learning_rate: 0.05
+      subsample: 0.8
+      colsample_bytree: 0.8
+      random_state: 0
+
 model_type_overrides:
   ridge_poly:
     transforms:
