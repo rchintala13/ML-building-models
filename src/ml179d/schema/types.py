@@ -51,6 +51,13 @@ class Schema:
     def row_id_columns(self) -> List[str]:
         return [col.name for col in self.by_role("row_id")]
 
+    def categorical_columns(self) -> List[str]:
+        """
+        Canonical columns declared as strings. These need encoding before any
+        estimator sees them.
+        """
+        return [col.name for col in self.columns.values() if col.dtype == "str"]
+
     def scenario_feature_columns(self) -> List[str]:
         return [
             col.name

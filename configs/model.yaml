@@ -89,14 +89,12 @@ base_feature_sets:
     - number_of_floors
     - gross_floor_area
     - ext_wall_surface_area
-    - roof_area
     - window_area
     - ext_wall_u_factor
     - roof_u_factor
     - window_u_factor
     - window_wall_ratio
     - window_shgc
-    - ACHInfiltration
     - design_heating_cop
     - design_heating_eff
     - water_heating_energy_factor
@@ -104,7 +102,6 @@ base_feature_sets:
     - swh_fuel_type
     # derived, produced by base_features above
     - roof_area_cal
-    - bldg_vol
     - ACH_infiltration_cal
     - sa_to_vol_ratio
 
@@ -174,7 +171,9 @@ model_type_overrides:
       - name: add_log_transforms
         params:
           columns:
-            - roof_area
+            # roof_area_cal, not the simulated roof_area: the feature sets
+            # select the calculated column
+            - roof_area_cal
             - sa_to_vol_ratio
             - ext_wall_u_factor
 

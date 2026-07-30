@@ -168,9 +168,22 @@ def train_usecase(
     train_data = build("train")
     test_data = build("test") if evaluate else None
 
+    # String features must be encoded inside the estimator so the encoding is
+    # fitted on train only and travels with the persisted model.
+    categorical = [
+        name
+        for name in train_data.feature_names
+        if name in set(ctx.schema.categorical_columns())
+    ]
+
     return fit(
         train_data,
-        estimator=factory(model_type, target_set=target_set, scenario=scenario),
+        estimator=factory(
+            model_type,
+            target_set=target_set,
+            scenario=scenario,
+            categorical_features=categorical,
+        ),
         test=test_data,
     )
 

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler, PolynomialFeatures, StandardScaler
+from sklearn.preprocessing import (
+    MinMaxScaler,
+    OneHotEncoder,
+    PolynomialFeatures,
+    StandardScaler,
+)
 
 from ml179d.models.protocols import Estimator
 
@@ -32,6 +39,34 @@ SCALERS = {
 }
 
 
+def _encoder_step(categorical_features: Sequence[str]) -> Optional[ColumnTransformer]:
+    """
+    One-hot encode string features, leaving numeric columns untouched.
+
+    Returns None when there are no categorical features, so numeric-only model
+    types keep exactly the pipeline their hyperparameters were tuned against.
+
+    Missing values become their own 'missing' category rather than being
+    dropped or imputed to a real fuel type, and unseen categories at predict
+    time encode as all-zeros instead of raising.
+    """
+    if not categorical_features:
+        return None
+
+    categorical = Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="constant", fill_value="missing")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+        ]
+    )
+
+    return ColumnTransformer(
+        [("categorical", categorical, list(categorical_features))],
+        remainder="passthrough",
+        verbose_feature_names_out=False,
+    )
+
+
 def _make_scaler(name: str):
     if name not in SCALERS:
         raise KeyError(f"Unknown scaler '{name}'. Available: {sorted(SCALERS)}")
@@ -39,7 +74,21 @@ def _make_scaler(name: str):
     return None if cls is None else cls()
 
 
-def _build_linear(params: Mapping[str, Any]) -> Estimator:
+def _with_encoder(
+    steps: list, categorical_features: Sequence[str]
+) -> Pipeline:
+    """
+    Prepend one-hot encoding when the feature set contains string columns.
+    """
+    encoder = _encoder_step(categorical_features)
+    if encoder is not None:
+        steps = [("encode", encoder), *steps]
+    return Pipeline(steps)
+
+
+def _build_linear(
+    params: Mapping[str, Any], categorical_features: Sequence[str] = ()
+) -> Estimator:
     params = dict(params)
     scaler = _make_scaler(params.pop("scaler", "minmax"))
 
@@ -48,10 +97,12 @@ def _build_linear(params: Mapping[str, Any]) -> Estimator:
         steps.append(("scaler", scaler))
     steps.append(("model", LinearRegression(**params)))
 
-    return Pipeline(steps)
+    return _with_encoder(steps, categorical_features)
 
 
-def _build_ridge_poly(params: Mapping[str, Any]) -> Estimator:
+def _build_ridge_poly(
+    params: Mapping[str, Any], categorical_features: Sequence[str] = ()
+) -> Estimator:
     params = dict(params)
     degree = params.pop("degree", 2)
     include_bias = params.pop("include_bias", False)
@@ -72,29 +123,39 @@ def _build_ridge_poly(params: Mapping[str, Any]) -> Estimator:
         steps.append(("scaler", scaler))
     steps.append(("model", Ridge(**params)))
 
-    return Pipeline(steps)
+    return _with_encoder(steps, categorical_features)
 
 
-def _build_xgboost(params: Mapping[str, Any]) -> Estimator:
+def _build_xgboost(
+    params: Mapping[str, Any], categorical_features: Sequence[str] = ()
+) -> Estimator:
     # Imported lazily so the package works without xgboost installed.
     from xgboost import XGBRegressor
 
-    return XGBRegressor(**dict(params))
+    model = XGBRegressor(**dict(params))
+    encoder = _encoder_step(categorical_features)
+    if encoder is None:
+        return model
+    return Pipeline([("encode", encoder), ("model", model)])
 
 
-BUILDERS: Dict[str, Callable[[Mapping[str, Any]], Estimator]] = {
+BUILDERS: Dict[str, Callable[..., Estimator]] = {
     "linear": _build_linear,
     "ridge_poly": _build_ridge_poly,
     "xgboost": _build_xgboost,
 }
 
 
-def build_estimator(kind: str, params: Mapping[str, Any]) -> Estimator:
+def build_estimator(
+    kind: str,
+    params: Mapping[str, Any],
+    categorical_features: Sequence[str] = (),
+) -> Estimator:
     if kind not in BUILDERS:
         raise KeyError(
             f"Unknown estimator kind '{kind}'. Available: {sorted(BUILDERS)}"
         )
-    return BUILDERS[kind](params)
+    return BUILDERS[kind](params, categorical_features)
 
 
 VALID_SCENARIOS = ("proposed", "baseline")
@@ -151,6 +212,7 @@ class ConfigEstimatorFactory:
         *,
         target_set: Optional[str] = None,
         scenario: Optional[str] = None,
+        categorical_features: Sequence[str] = (),
     ) -> Estimator:
         if model_type not in self._estimators:
             raise KeyError(
@@ -166,4 +228,4 @@ class ConfigEstimatorFactory:
         merged.update(self._override_params(spec, model_type, target_set, scenario))
         merged.update(dict(params or {}))
 
-        return build_estimator(spec["kind"], merged)
+        return build_estimator(spec["kind"], merged, categorical_features)
