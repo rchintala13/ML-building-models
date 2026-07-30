@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.preprocessing import MinMaxScaler
 
 from ml179d.models.factory import ConfigEstimatorFactory, build_estimator
 from ml179d.models.metrics import metrics_by_target, regression_metrics
@@ -67,6 +68,97 @@ def test_factory_call_params_override_config(ctx):
 def test_build_estimator_rejects_unknown_kind():
     with pytest.raises(KeyError, match="Unknown estimator kind"):
         build_estimator("magic", {})
+
+
+def test_ridge_poly_step_order_and_scaler(ctx):
+    """
+    poly_features -> scaler -> model. The tuned alpha assumes this order.
+    """
+    factory = ConfigEstimatorFactory(ctx.model_config.estimators)
+
+    model = factory("ridge_poly")
+
+    assert list(model.named_steps) == ["poly_features", "scaler", "model"]
+    assert isinstance(model.named_steps["scaler"], MinMaxScaler)
+    assert model.named_steps["poly_features"].degree == 2
+    assert model.named_steps["poly_features"].include_bias is False
+    assert model.named_steps["poly_features"].interaction_only is False
+    assert model.named_steps["model"].fit_intercept is True
+
+
+def test_factory_applies_scenario_override(ctx):
+    factory = ConfigEstimatorFactory(ctx.model_config.estimators)
+
+    base = factory("ridge_poly", target_set="electricity", scenario="proposed")
+    overridden = factory("ridge_poly", target_set="electricity", scenario="baseline")
+
+    assert base.named_steps["model"].alpha == 0.007
+    assert overridden.named_steps["model"].alpha == 0.5
+
+
+def test_factory_ignores_override_for_other_target_set(ctx):
+    factory = ConfigEstimatorFactory(ctx.model_config.estimators)
+
+    model = factory("ridge_poly", target_set="natural_gas", scenario="baseline")
+
+    assert model.named_steps["model"].alpha == 0.007
+
+
+def test_factory_explicit_params_beat_overrides(ctx):
+    factory = ConfigEstimatorFactory(ctx.model_config.estimators)
+
+    model = factory(
+        "ridge_poly", {"alpha": 9.0}, target_set="electricity", scenario="baseline"
+    )
+
+    assert model.named_steps["model"].alpha == 9.0
+
+
+def test_factory_rejects_unknown_scenario_key(ctx):
+    estimators = {
+        "ridge_poly": {
+            "kind": "ridge_poly",
+            "params": {"alpha": 0.007},
+            "overrides": {"electricity": {"baseline_prm": {"alpha": 1.0}}},
+        }
+    }
+
+    with pytest.raises(ValueError, match="unknown scenario key"):
+        ConfigEstimatorFactory(estimators)(
+            "ridge_poly", target_set="electricity", scenario="proposed"
+        )
+
+
+def test_factory_rejects_unknown_scaler(ctx):
+    estimators = {"ridge_poly": {"kind": "ridge_poly", "params": {"scaler": "robust"}}}
+
+    with pytest.raises(KeyError, match="Unknown scaler"):
+        ConfigEstimatorFactory(estimators)("ridge_poly")
+
+
+def test_train_usecase_uses_scenario_specific_alpha(batch_index, ctx):
+    """
+    The tuned alpha must reach the fitted model, not just the factory.
+    """
+    proposed = train_usecase(
+        batch_index,
+        ctx=ctx,
+        usecase_id=USECASE_ID,
+        scenario="proposed",
+        target_set="electricity",
+        model_type="ridge_poly",
+    )
+    baseline = train_usecase(
+        batch_index,
+        ctx=ctx,
+        usecase_id=USECASE_ID,
+        scenario="baseline",
+        target_set="electricity",
+        model_type="ridge_poly",
+    )
+
+    assert proposed.estimator.named_steps["model"].alpha == 0.007
+    assert baseline.estimator.named_steps["model"].alpha == 0.5
 
 
 # ---------------------------------------------------------------

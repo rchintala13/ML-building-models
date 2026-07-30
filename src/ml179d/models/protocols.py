@@ -24,8 +24,14 @@ class EstimatorFactory(Protocol):
     """
     Builds an unfitted estimator for a model_type from its hyperparameters.
 
-    model.yaml currently carries no hyperparameters -- 'ridge_poly',
-    'plain_linear' and 'xgboost' appear only as transform recipes. Whatever
-    config section supplies them should feed this.
+    target_set and scenario are passed because tuned hyperparameters differ
+    along both axes -- see the 'overrides' block in model.yaml.
     """
-    def __call__(self, model_type: str, params: Mapping[str, Any]) -> Estimator: ...
+    def __call__(
+        self,
+        model_type: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        target_set: str | None = None,
+        scenario: str | None = None,
+    ) -> Estimator: ...

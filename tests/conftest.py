@@ -112,12 +112,22 @@ system_overrides: {}
 estimators:
   plain_linear:
     kind: linear
-    params: {}
+    params:
+      scaler: minmax
+      fit_intercept: true
   ridge_poly:
     kind: ridge_poly
     params:
       degree: 2
-      alpha: 0.001
+      interaction_only: false
+      include_bias: false
+      scaler: minmax
+      fit_intercept: true
+      alpha: 0.007
+    overrides:
+      electricity:
+        baseline:
+          alpha: 0.5
 
 model_type_overrides:
   plain_linear:

@@ -82,19 +82,37 @@ system_overrides:
 # Estimator per model_type. 'kind' selects the builder in models/factory.py;
 # 'params' are passed through to the underlying estimator.
 # Every key here must also appear in model_type_overrides below.
+#
+# 'overrides' is keyed by target_set then scenario and wins over 'params'.
+# It exists because alpha was tuned per target and scenario.
+#
+# ridge_poly values below are carried over from the previous surrogate
+# implementation (surrogate_modeling_179d_old), where they were tuned against
+# the step order poly_features -> MinMaxScaler -> Ridge. Reordering those steps
+# invalidates the tuning.
 estimators:
   plain_linear:
     kind: linear
-    params: {}
+    params:
+      scaler: minmax
+      fit_intercept: true
 
   ridge_poly:
     kind: ridge_poly
     params:
       degree: 2
-      alpha: 1.0
-      include_bias: false
       interaction_only: false
+      include_bias: false
+      scaler: minmax
+      fit_intercept: true
+      alpha: 0.007
+    overrides:
+      natural_gas:
+        # the one tuned value that differs from 0.007
+        proposed:
+          alpha: 0.001
 
+  # Not yet tuned -- placeholder defaults.
   xgboost:
     kind: xgboost
     params:

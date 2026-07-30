@@ -170,7 +170,7 @@ def train_usecase(
 
     return fit(
         train_data,
-        estimator=factory(model_type),
+        estimator=factory(model_type, target_set=target_set, scenario=scenario),
         test=test_data,
     )
 
