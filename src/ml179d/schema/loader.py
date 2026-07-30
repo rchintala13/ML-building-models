@@ -42,7 +42,24 @@ def load_schema(schema_path: Path) -> Schema:
             sources_by_scenario=dict(spec.get("sources_by_scenario", {})) or None,
         )
 
-    return Schema(columns=columns)
+    raw_validity = cfg.get("row_validity") or {}
+    if not isinstance(raw_validity, dict):
+        raise ValueError(
+            f"'row_validity' must be a mapping of raw column -> allowed values, "
+            f"got {type(raw_validity).__name__}."
+        )
+
+    row_validity: Dict[str, List[str]] = {}
+    for column, allowed in raw_validity.items():
+        values = [allowed] if isinstance(allowed, str) else list(allowed or [])
+        if not values:
+            raise ValueError(
+                f"row_validity['{column}'] has no allowed values, which would "
+                f"exclude every row."
+            )
+        row_validity[column] = values
+
+    return Schema(columns=columns, row_validity=row_validity)
 
 
 def _first_source(col: ColumnSpec) -> str:

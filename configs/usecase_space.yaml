@@ -5,6 +5,14 @@
 usecase:
   sep: "_"
 
+  # Some raw BEM values embed the usecase value in a longer string. These
+  # regexes run before the alias lookup below; capture group 1 is the value
+  # used. Extraction is idempotent, so '4A' passes through unchanged.
+  #   reporting_179_d.in_weather_climate_zone = 'ASHRAE 169-2013-4A' -> '4A'
+  # A pattern that fails to match raises rather than producing a mangled id.
+  extract:
+    climate_zone: '([0-9][A-C])$'
+
   #Aliases map BEM csv values of BT, ST, and CZ to usecase substrings. Ex SmallOffice -> small_office
   aliases:
     building_type:

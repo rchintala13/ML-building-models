@@ -215,6 +215,8 @@ class TrainingData:
     scenario: str
     split: str
     recipe: DatasetRecipe
+    # rows removed by schema.row_validity, i.e. failed simulation datapoints
+    n_invalid_rows: int = 0
 
     @property
     def feature_names(self) -> List[str]:
@@ -386,4 +388,5 @@ def stage_dataset(
         scenario=scenario,
         split=split,
         recipe=recipe,
+        n_invalid_rows=int(df.attrs.get("n_invalid_rows_dropped", 0)),
     )

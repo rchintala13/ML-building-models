@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,12 @@ recover them, which makes metric and savings assertions deterministic.
 """
 
 SCHEMA_YAML = """
+row_validity:
+  status:
+    - completed
+  status_message:
+    - completed normal
+
 columns:
   name:
     role: row_id
@@ -173,7 +180,14 @@ def make_raw_frame(
     seed: int = 0,
     name_prefix: str = "bldg",
     name_offset: int = 0,
+    failed_rows: Sequence[int] = (),
 ) -> pd.DataFrame:
+    """
+    failed_rows:
+        positional indices to mark as failed simulations. Their feature and
+        target values are blanked, mirroring how EnergyPlus reports a
+        'datapoint failure'.
+    """
     rng = np.random.default_rng(seed)
 
     gross_floor_area = 500.0 + 60.0 * np.arange(n_rows)
@@ -184,11 +198,13 @@ def make_raw_frame(
     c = ENERGY_COEFFS[scenario]
     electricity = c["intercept"] + c["gfa"] * gross_floor_area + c["roof"] * roof_area
 
-    return pd.DataFrame(
+    frame = pd.DataFrame(
         {
             "reporting_179_d.name": [
                 f"{name_prefix}_{i + name_offset}" for i in range(n_rows)
             ],
+            "status": ["completed"] * n_rows,
+            "status_message": ["completed normal"] * n_rows,
             "reporting_179_d.in_primary_bldg_type": ["SmallOffice"] * n_rows,
             "reporting_179_d.in_weather_climate_zone": ["5A"] * n_rows,
             "support.in_hvac_system_type_proposed": ["PSZ-HP"] * n_rows,
@@ -200,6 +216,13 @@ def make_raw_frame(
             "some.unmapped_column": ["ignored"] * n_rows,
         }
     )
+
+    if failed_rows:
+        blanked = [c for c in frame.columns if c.startswith(("reporting_179_d.", "support."))]
+        frame.loc[list(failed_rows), blanked] = np.nan
+        frame.loc[list(failed_rows), "status_message"] = "datapoint failure"
+
+    return frame
 
 
 def write_batch_csv(path: Path, **kwargs) -> None:

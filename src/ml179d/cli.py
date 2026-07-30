@@ -240,6 +240,10 @@ def run_job(
             usecase_id=job.usecase_id,
             target_set=job.target_set,
             model_type=job.model_type,
+            # Simulations fail per datapoint, so proposed and baseline rarely
+            # lose the same buildings. Pair on the intersection and record the
+            # unpaired counts rather than aborting the job.
+            require_full_overlap=False,
         )
         for model in result.models.values():
             save_model(model, output_root=output_dir)

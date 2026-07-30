@@ -1,6 +1,6 @@
 from __future__ import annotations
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Literal, Tuple, Optional
 import yaml
@@ -20,6 +20,13 @@ UsecaseResolver stores the mappings from raw -> slug and slug-> raw
     - either provided  by user
     - or read from a yaml file (./configs/usecase_space.yaml)
 
+Extraction
+----------
+Some raw BEM values embed the usecase value inside a longer string, e.g.
+climate zone arrives as 'ASHRAE 169-2013-4A' rather than '4A'. The optional
+'extract' block in usecase_space.yaml gives a regex per kind, applied before
+the alias lookup. Extraction is idempotent, so an already-extracted value
+passes through unchanged.
 """
 
 Kind = Literal["building_type", "system_type", "climate_zone"]
@@ -66,6 +73,9 @@ class UsecaseResolver:
     system_type_rev: Dict[str, str]
     climate_zone_rev: Dict[str, str]
 
+    # optional regex per kind, applied to raw values before the alias lookup
+    extract: Dict[str, str] = field(default_factory=dict)
+
     @staticmethod
     def from_yaml(path: Path) -> UsecaseResolver:
         cfg = yaml.safe_load(path.read_text())
@@ -84,19 +94,52 @@ class UsecaseResolver:
             building_type_rev=invert_map(bt),
             system_type_rev=invert_map(st),
             climate_zone_rev=invert_map(cz),
+            extract=dict(uc.get("extract", {}) or {}),
         )
+
+    def normalize(self, kind: Kind, raw: str) -> str:
+        """
+        Pull the usecase value out of a longer raw string.
+
+        Returns raw unchanged when no pattern is configured for this kind, or
+        when the value already matches an alias key. Raises when a pattern is
+        configured and does not match, since a silent fallback would produce a
+        mangled usecase id instead of an error.
+        """
+        pattern = self.extract.get(kind)
+        if not pattern:
+            return raw
+
+        value = str(raw)
+
+        # already a known alias key, nothing to extract
+        if value in self._alias_map(kind):
+            return value
+
+        match = re.search(pattern, value)
+        if not match:
+            raise ValueError(
+                f"Could not extract {kind} from '{raw}' using pattern "
+                f"'{pattern}'. Fix the 'extract' block in usecase_space.yaml."
+            )
+
+        return match.group(1) if match.groups() else match.group(0)
+
+    def _alias_map(self, kind: Kind) -> Dict[str, str]:
+        if kind == "building_type":
+            return self.building_type_alias
+        if kind == "system_type":
+            return self.system_type_alias
+        if kind == "climate_zone":
+            return self.climate_zone_alias
+        raise ValueError(f"Unknown kind: {kind}")
 
     def to_slug(self, kind: Kind, raw: str) -> str:
         """
         Convert a raw/canonical value to its slug used in usecase IDs.
         """
-        if kind == "building_type":
-            return self.building_type_alias.get(raw, default_slugify(raw))
-        if kind == "system_type":
-            return self.system_type_alias.get(raw, default_slugify(raw))
-        if kind == "climate_zone":
-            return self.climate_zone_alias.get(raw, default_slugify(raw))
-        raise ValueError(f"Unknown kind: {kind}")
+        value = self.normalize(kind, raw)
+        return self._alias_map(kind).get(value, default_slugify(value))
 
     def to_raw(self, kind: Kind, slug: str) -> str:
         """

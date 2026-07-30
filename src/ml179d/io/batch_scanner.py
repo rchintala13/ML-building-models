@@ -66,8 +66,12 @@ def _read_usecase_constants_from_csv(
       - system_type
       - climate_zone
 
-    Only reads the first row because these columns are assumed constant
-    within a file.
+    These columns are constant within a file, but only across rows that
+    simulated successfully: a 'datapoint failure' row has them blank. The first
+    row of a batch is not necessarily a successful one, so this reads the three
+    columns for the whole file and takes the first fully populated row.
+
+    Only three columns are parsed, so this stays cheap regardless of file size.
 
     Parameters
     ----------
@@ -85,21 +89,26 @@ def _read_usecase_constants_from_csv(
     bt_col = colmap.building_type_raw
     cz_col = colmap.climate_zone_raw
     st_col = colmap.system_type_raw_by_scenario[scenario]
-
-    df = pd.read_csv(csv_path, nrows=1)
-
     required_cols = [bt_col, st_col, cz_col]
-    missing_cols = [col for col in required_cols if col not in df.columns]
+
+    header = pd.read_csv(csv_path, nrows=0)
+    missing_cols = [col for col in required_cols if col not in header.columns]
     if missing_cols:
         raise KeyError(
             f"{csv_path.name} is missing required usecase columns: {missing_cols}"
         )
 
-    building_type = str(df.iloc[0][bt_col])
-    system_type = str(df.iloc[0][st_col])
-    climate_zone = str(df.iloc[0][cz_col])
+    df = pd.read_csv(csv_path, usecols=required_cols)
+    populated = df.dropna(subset=required_cols)
 
-    return building_type, system_type, climate_zone
+    if populated.empty:
+        raise ValueError(
+            f"{csv_path.name} has no row with all of {required_cols} populated; "
+            f"every datapoint may have failed."
+        )
+
+    row = populated.iloc[0]
+    return str(row[bt_col]), str(row[st_col]), str(row[cz_col])
 
 
 def scan_batches(
@@ -171,6 +180,12 @@ def scan_batches(
             scenario=meta.scenario,
             colmap=colmap,
         )
+
+        # Strip any wrapping text (e.g. 'ASHRAE 169-2013-4A' -> '4A') so that
+        # the batch index stores the same values the aliases are keyed on.
+        building_type = resolver.normalize("building_type", building_type)
+        system_type = resolver.normalize("system_type", system_type)
+        climate_zone = resolver.normalize("climate_zone", climate_zone)
 
         usecase = Usecase(
             building_type=building_type,

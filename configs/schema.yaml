@@ -8,6 +8,17 @@ defaults:
   required: false
   dtype: str
 
+# Simulation runs that did not complete leave their feature and identifier
+# columns blank, so those rows must not reach a model. Keyed by RAW column
+# name; only rows matching every entry are loaded.
+# This is a whitelist: 'started', 'queued' and blank status_message values are
+# all rejected without having to enumerate them.
+row_validity:
+  status:
+    - completed
+  status_message:
+    - completed normal
+
 roles:
   id: ["building_type", "system_type", "climate_zone"]
   row_id: ["name"]

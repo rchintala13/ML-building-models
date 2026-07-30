@@ -11,11 +11,13 @@ version: 1
 #   add_sa_to_vol_ratio  -> sa_to_vol_ratio      (reads simulated roof_area)
 #
 # Anything listed here must also appear in a base_feature_set to reach the model.
-base_features: []
-  # - add_roof_area
-  # - add_bldg_volume
-  # - add_ach_infiltration
-  # - add_sa_to_vol_ratio
+# Order matters only through data dependencies: add_bldg_volume and
+# add_sa_to_vol_ratio read the SIMULATED roof_area column, not roof_area_cal.
+base_features:
+  - add_roof_area
+  #- add_bldg_volume
+  - add_ach_infiltration
+  - add_sa_to_vol_ratio
 
 # Row-level range filters, applied after base features and before feature
 # selection so they can reference simulated, derived or unselected columns.
@@ -65,20 +67,22 @@ base_feature_sets:
     - number_of_floors
     - gross_floor_area
     - ext_wall_surface_area
-    - roof_area
     - window_area
     - ext_wall_u_factor
     - roof_u_factor
     - window_u_factor
     - window_wall_ratio
     - window_shgc
-    - ACHInfiltration
     - design_cooling_cop
     - design_heating_cop
     - design_heating_eff
     - erv_sensible_cooling
     - lpd
     - fan_power
+    # derived, produced by base_features above
+    - roof_area_cal
+    - ACH_infiltration_cal
+    - sa_to_vol_ratio
 
   natural_gas:
     - aspect_ratio
@@ -98,6 +102,11 @@ base_feature_sets:
     - water_heating_energy_factor
     - water_heating_ua
     - swh_fuel_type
+    # derived, produced by base_features above
+    - roof_area_cal
+    - bldg_vol
+    - ACH_infiltration_cal
+    - sa_to_vol_ratio
 
 # Keyed by SLUGGED system_type (see usecase_space.yaml aliases):
 # HP_RTU, MSHP_DOAS, PSZ-AC_with_electric_coil, PSZ-AC_with_gas_coil,

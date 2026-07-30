@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 @dataclass(frozen=True, slots=True)
@@ -21,8 +21,14 @@ class ColumnSpec:
 class Schema:
     """
     Fully loaded schema from schema.yaml
+
+    row_validity:
+        raw column name -> allowed values. Only rows matching every entry are
+        loaded. This is a whitelist rather than a blacklist so that a new
+        failure spelling is excluded by default instead of silently admitted.
     """
     columns: Dict[str, ColumnSpec]
+    row_validity: Dict[str, List[str]] = field(default_factory=dict)
 
     def get_column(self, name: str) -> ColumnSpec:
         if name not in self.columns:

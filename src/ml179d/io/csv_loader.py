@@ -81,6 +81,36 @@ def resolve_raw_to_canonical_column_map(
     return raw_to_canonical
 
 
+def apply_row_validity(
+    df: pd.DataFrame,
+    *,
+    schema: Schema,
+    source: str = "",
+) -> tuple[pd.DataFrame, int]:
+    """
+    Keep only rows that satisfy every schema.row_validity condition.
+
+    Failed simulation rows carry blank features and blank usecase identifiers,
+    so they would otherwise flow into training as NaN. Returns the filtered
+    frame and the number of rows dropped.
+    """
+    if not schema.row_validity:
+        return df, 0
+
+    mask = pd.Series(True, index=df.index)
+
+    for column, allowed in schema.row_validity.items():
+        if column not in df.columns:
+            raise KeyError(
+                f"{source or 'DataFrame'} is missing row_validity column "
+                f"'{column}'. Remove it from schema.yaml or fix the source data."
+            )
+        mask &= df[column].isin(allowed)
+
+    n_dropped = int((~mask).sum())
+    return df.loc[mask].copy(), n_dropped
+
+
 def load_canonical_batch_dataframe(
     csv_path: Path,
     *,
@@ -113,6 +143,13 @@ def load_canonical_batch_dataframe(
 
     df_raw = pd.read_csv(csv_path)
 
+    # Drop failed simulation rows before anything else looks at the data.
+    df_raw, n_invalid = apply_row_validity(df_raw, schema=schema, source=csv_path.name)
+    if df_raw.empty:
+        raise ValueError(
+            f"{csv_path.name}: every row was rejected by schema.row_validity."
+        )
+
     raw_to_canonical = resolve_raw_to_canonical_column_map(
         df_raw.columns,
         schema=schema,
@@ -132,6 +169,7 @@ def load_canonical_batch_dataframe(
             if row_id_col in df.columns:
                 df = df.set_index(row_id_col, drop=False)
 
+    df.attrs["n_invalid_rows_dropped"] = n_invalid
     return df
 
 
