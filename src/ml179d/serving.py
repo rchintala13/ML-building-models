@@ -105,6 +105,17 @@ def build_manifest(
             entry["categories"] = list(categories[name])
         inputs.append(entry)
 
+    # Both scenarios must have been fitted on the same columns, or a single
+    # 'fitted_features' list cannot describe the bundle.
+    feature_lists = {
+        scenario: tuple(model.feature_names) for scenario, model in models.items()
+    }
+    if len(set(feature_lists.values())) > 1:
+        raise ValueError(
+            "Scenario models were fitted on different features, so one manifest "
+            f"cannot describe them: {feature_lists}"
+        )
+
     any_model = next(iter(models.values()))
 
     return {

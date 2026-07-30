@@ -224,3 +224,90 @@ def test_load_bundle_reports_a_missing_model_file(trained):
 
     with pytest.raises(FileNotFoundError, match="Model file missing"):
         load_bundle(trained["model_dir"])
+
+
+# ---------------------------------------------------------------
+# per-usecase recipe variation
+# ---------------------------------------------------------------
+
+def test_manifest_reflects_system_overrides(tmp_path: Path):
+    """
+    The manifest recipe must resolve exactly as stage_dataset did, including
+    system_overrides, or it would describe a model that was never fitted.
+    """
+    from conftest import MODEL_YAML
+
+    model_yaml = MODEL_YAML.replace(
+        "system_overrides: {}",
+        "system_overrides:\n"
+        "  PSZ-HP:\n"
+        "    add_features:\n"
+        "      - bldg_vol\n",
+    )
+    project = write_project(tmp_path, model_yaml=model_yaml)
+
+    code = main(
+        [
+            "train",
+            "--usecase", USECASE_ID,
+            "--model-type", "plain_linear",
+            "--configs", str(project["root"] / "configs"),
+            "--data-root", str(project["root"] / "data"),
+            "--output-dir", str(project["root"] / "outputs"),
+        ]
+    )
+    assert code == 0
+
+    directory = (
+        project["root"] / "outputs" / "models" / USECASE_ID / "electricity" / "plain_linear"
+    )
+    manifest = json.loads((directory / "manifest.json").read_text())
+    sidecar = json.loads((directory / "proposed.json").read_text())
+
+    # the system override added bldg_vol; the manifest must know about it
+    assert "bldg_vol" in manifest["fitted_features"]
+    assert manifest["fitted_features"] == sidecar["feature_names"]
+
+
+def test_manifest_fitted_features_match_the_actual_models(trained):
+    """
+    The declared contract must equal what each scenario model was fitted on.
+    """
+    manifest = json.loads((trained["model_dir"] / "manifest.json").read_text())
+
+    for scenario in ("proposed", "baseline"):
+        sidecar = json.loads((trained["model_dir"] / f"{scenario}.json").read_text())
+        assert manifest["fitted_features"] == sidecar["feature_names"]
+
+
+def test_manifest_rejects_mismatched_scenario_features(trained):
+    from ml179d.serving import build_manifest
+    from ml179d.config import DatasetRecipe
+
+    bundle = load_bundle(trained["model_dir"])
+    manifest = json.loads((trained["model_dir"] / "manifest.json").read_text())
+
+    import dataclasses
+    from ml179d.train import FittedModel
+
+    proposed = FittedModel(
+        estimator=bundle.estimators["proposed"], usecase_id=USECASE_ID,
+        scenario="proposed", target_set="electricity", model_type="plain_linear",
+        feature_names=["a", "b"], target_names=["t"], n_train=10,
+    )
+    baseline = dataclasses.replace(proposed, scenario="baseline", feature_names=["a"])
+
+    recipe = DatasetRecipe(
+        features=("a", "b"), targets=("t",), base_features=(), transforms=(),
+        filters=(), target_set="electricity", model_type="plain_linear",
+    )
+
+    with pytest.raises(ValueError, match="fitted on different features"):
+        build_manifest(
+            models={"proposed": proposed, "baseline": baseline},
+            recipe=recipe,
+            usecase_id=USECASE_ID,
+            building_type_slug="small_office",
+            system_type_slug="PSZ-HP",
+            climate_zone_slug="CZ5A",
+        )

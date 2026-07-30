@@ -227,15 +227,19 @@ def write_manifest(result, *, ctx: PipelineContext, output_dir: Path) -> Path:
     Write the serving manifest next to a usecase's fitted models.
     """
     proposed = result.models["proposed"]
-    recipe = ctx.model_config.resolve(
-        target_set=result.target_set,
-        model_type=result.model_type,
-        usecase_id=result.usecase_id,
-        scenario="proposed",
-    )
 
     building_type_slug, system_type_slug, climate_zone_slug = ctx.resolver.parse_id(
         result.usecase_id
+    )
+
+    # Must mirror stage_dataset exactly, including system_type_slug: a recipe
+    # resolved differently here would describe a model that was never fitted.
+    recipe = ctx.model_config.resolve(
+        target_set=result.target_set,
+        model_type=result.model_type,
+        system_type_slug=system_type_slug,
+        usecase_id=result.usecase_id,
+        scenario="proposed",
     )
 
     categories = {}
