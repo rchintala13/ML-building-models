@@ -17,6 +17,42 @@ base_features: []
   # - add_ach_infiltration
   # - add_sa_to_vol_ratio
 
+# Row-level range filters, applied after base features and before feature
+# selection so they can reference simulated, derived or unselected columns.
+#
+# apply_to_test:
+#   false -> filter the train split only; models are fitted on a restricted
+#            range but scored against the full test distribution
+#   true  -> filter both splits
+#
+# overrides are matched like usecase_space disallow rules: every field named in
+# 'when' must match, omitted fields are wildcards, and later matching rules win.
+# Bounds merge per column, so an override that touches one column leaves the
+# rest of the global bounds in place. Set a bound to null to remove it.
+#
+# CAUTION: a filter that differs between proposed and baseline drops different
+# buildings from each, which breaks savings pairing. train.pair_scenarios will
+# raise rather than silently misalign.
+filters:
+  min_values:
+    gross_floor_area: 400
+    # roof_area: 250
+    # aspect_ratio: 2.0
+  max_values: {}
+  apply_to_test: true
+
+  overrides: []
+  #  - when:
+  #      target_set: natural_gas
+  #    min_values:
+  #      gross_floor_area: 500
+  #  - when:
+  #      usecase_id: small_office_PSZ-HP_CZ5A
+  #      scenario: [proposed, baseline]
+  #    max_values:
+  #      window_wall_ratio: 0.6
+  #    apply_to_test: true
+
 target_sets:
   electricity:
     - total_electricity_179d
@@ -156,7 +192,5 @@ usecase_overrides: {}
   #   drop_features: []
   #   transforms:
   #     - add_log_ext_wall_u_factor
-  #   filters:
-  #     - column: window_u_factor
-  #       min_value: 0.1
-  #       max_value: 6.0
+  # Filters are NOT configured here -- use the top-level 'filters' block with
+  # an override on when.usecase_id.

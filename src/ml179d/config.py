@@ -42,6 +42,11 @@ class FilterSpec:
 class DatasetRecipe:
     """
     Everything the pipeline needs to turn a canonical DataFrame into (X, y).
+
+    filters_apply_to_test:
+        False (the default) filters the train split only, so models are fitted
+        on a restricted range but scored against the full test distribution.
+        True filters both splits.
     """
     features: Tuple[str, ...]
     targets: Tuple[str, ...]
@@ -50,21 +55,45 @@ class DatasetRecipe:
     filters: Tuple[FilterSpec, ...]
     target_set: str
     model_type: str
+    filters_apply_to_test: bool = False
 
 
-def _as_filter_specs(raw: Sequence[Mapping[str, Any]]) -> Tuple[FilterSpec, ...]:
-    specs: List[FilterSpec] = []
-    for entry in raw or []:
-        if "column" not in entry:
-            raise ValueError(f"Filter entry is missing 'column': {entry}")
-        specs.append(
-            FilterSpec(
-                column=entry["column"],
-                min_value=entry.get("min_value"),
-                max_value=entry.get("max_value"),
-            )
+FILTER_SELECTOR_FIELDS = ("target_set", "scenario", "usecase_id")
+
+
+def _selector_matches(
+    when: Mapping[str, Any],
+    *,
+    target_set: Optional[str],
+    scenario: Optional[str],
+    usecase_id: Optional[str],
+) -> bool:
+    """
+    A selector matches when every field it names matches; omitted fields are
+    wildcards. Same rule as the 'disallow' constraints in usecase_space.yaml.
+    """
+    unknown = [k for k in when if k not in FILTER_SELECTOR_FIELDS]
+    if unknown:
+        raise ValueError(
+            f"Filter override selector has unknown field(s) {unknown}. "
+            f"Expected any of {list(FILTER_SELECTOR_FIELDS)}."
         )
-    return tuple(specs)
+
+    actual = {
+        "target_set": target_set,
+        "scenario": scenario,
+        "usecase_id": usecase_id,
+    }
+
+    for field_name, expected in when.items():
+        current = actual[field_name]
+        if current is None:
+            return False
+        allowed = (expected,) if isinstance(expected, str) else tuple(expected)
+        if current not in allowed:
+            return False
+
+    return True
 
 
 def _as_transform_specs(raw: Sequence[Mapping[str, Any]]) -> Tuple[TransformSpec, ...]:
@@ -112,6 +141,7 @@ class ModelConfig:
     model_type_overrides: Mapping[str, Mapping[str, Any]]
     usecase_overrides: Mapping[str, Mapping[str, Any]]
     estimators: Mapping[str, Mapping[str, Any]]
+    filters: Mapping[str, Any]
 
     @staticmethod
     def from_yaml(path: Path) -> "ModelConfig":
@@ -134,7 +164,61 @@ class ModelConfig:
             model_type_overrides=cfg.get("model_type_overrides") or {},
             usecase_overrides=usecase_overrides,
             estimators=cfg.get("estimators") or {},
+            filters=cfg.get("filters") or {},
         )
+
+    def resolve_filters(
+        self,
+        *,
+        target_set: Optional[str] = None,
+        scenario: Optional[str] = None,
+        usecase_id: Optional[str] = None,
+    ) -> Tuple[Tuple[FilterSpec, ...], bool]:
+        """
+        Merge the global bounds with every matching override, in file order.
+
+        Merging is per column, so an override that tightens one column leaves
+        the other global bounds intact. Setting a bound to null removes it.
+        """
+        block = self.filters or {}
+
+        min_values: Dict[str, Any] = dict(block.get("min_values") or {})
+        max_values: Dict[str, Any] = dict(block.get("max_values") or {})
+        apply_to_test = bool(block.get("apply_to_test", False))
+
+        overrides = block.get("overrides") or []
+        if not isinstance(overrides, list):
+            raise ValueError(
+                f"'filters.overrides' must be a list of rules, got "
+                f"{type(overrides).__name__}."
+            )
+
+        for rule in overrides:
+            if not _selector_matches(
+                rule.get("when") or {},
+                target_set=target_set,
+                scenario=scenario,
+                usecase_id=usecase_id,
+            ):
+                continue
+
+            min_values.update(rule.get("min_values") or {})
+            max_values.update(rule.get("max_values") or {})
+            if "apply_to_test" in rule:
+                apply_to_test = bool(rule["apply_to_test"])
+
+        specs = tuple(
+            FilterSpec(
+                column=column,
+                min_value=min_values.get(column),
+                max_value=max_values.get(column),
+            )
+            for column in sorted(set(min_values) | set(max_values))
+            # a column whose bounds were both cleared is not a filter
+            if min_values.get(column) is not None or max_values.get(column) is not None
+        )
+
+        return specs, apply_to_test
 
     def resolve(
         self,
@@ -143,6 +227,7 @@ class ModelConfig:
         model_type: str,
         system_type_slug: Optional[str] = None,
         usecase_id: Optional[str] = None,
+        scenario: Optional[str] = None,
     ) -> DatasetRecipe:
         """
         Resolve the recipe for one training run.
@@ -184,7 +269,18 @@ class ModelConfig:
             self.model_type_overrides[model_type].get("transforms", [])
         ) + _as_transform_specs(uc_override.get("transforms", []))
 
-        filters = _as_filter_specs(uc_override.get("filters", []))
+        if uc_override.get("filters"):
+            raise ValueError(
+                f"usecase_overrides['{usecase_id}'] defines 'filters'. Filters now "
+                f"live in the top-level 'filters' block; use an override with "
+                f"when.usecase_id instead."
+            )
+
+        filters, filters_apply_to_test = self.resolve_filters(
+            target_set=target_set,
+            scenario=scenario,
+            usecase_id=usecase_id,
+        )
 
         return DatasetRecipe(
             features=tuple(features),
@@ -194,6 +290,7 @@ class ModelConfig:
             filters=filters,
             target_set=target_set,
             model_type=model_type,
+            filters_apply_to_test=filters_apply_to_test,
         )
 
 

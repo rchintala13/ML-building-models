@@ -320,6 +320,7 @@ def stage_dataset(
         model_type=model_type,
         system_type_slug=ctx.resolver.to_slug("system_type", row["system_type"]),
         usecase_id=usecase_id,
+        scenario=scenario,
     )
 
     csv_path = resolve_batch_path(
@@ -349,8 +350,9 @@ def stage_dataset(
         _feature_context(usecase_id, row, ctx.resolver),
     )
 
-    # 3. filters
-    df = _apply_filters(df, recipe.filters)
+    # 3. filters -- train only unless the config opts test in
+    if split == "train" or recipe.filters_apply_to_test:
+        df = _apply_filters(df, recipe.filters)
 
     # 4. feature selection
     missing_features = [c for c in recipe.features if c not in df.columns]

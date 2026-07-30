@@ -294,17 +294,20 @@ def test_resolve_rejects_unknown_model_type(tmp_path: Path):
         config.resolve(target_set="electricity", model_type="random_forest")
 
 
-def test_usecase_override_appends_transforms_and_filters(tmp_path: Path):
+def test_usecase_override_appends_transforms(tmp_path: Path):
     path = tmp_path / "model.yaml"
     path.write_text(
         MODEL_YAML.replace(
             "usecase_overrides: {}",
             "usecase_overrides:\n"
             f"  {USECASE_ID}:\n"
-            "    filters:\n"
-            "      - column: gross_floor_area\n"
-            "        min_value: 0.0\n"
-            "        max_value: 1e9\n",
+            "    add_features:\n"
+            "      - bldg_vol\n"
+            "    transforms:\n"
+            "      - name: add_log_transforms\n"
+            "        params:\n"
+            "          columns:\n"
+            "            - bldg_vol\n",
         )
     )
     config = ModelConfig.from_yaml(path)
@@ -313,13 +316,37 @@ def test_usecase_override_appends_transforms_and_filters(tmp_path: Path):
         target_set="electricity", model_type="ridge_poly", usecase_id=USECASE_ID
     )
 
-    assert len(recipe.filters) == 1
-    assert recipe.filters[0].column == "gross_floor_area"
-    # model-type transforms are preserved
+    assert "bldg_vol" in recipe.features
+    # usecase transforms append to the model-type transforms, they do not replace
     assert [t.name for t in recipe.transforms] == [
         "add_log_transforms",
         "add_piecewise_feature",
+        "add_log_transforms",
     ]
+
+
+def test_usecase_override_rejects_legacy_filters(tmp_path: Path):
+    """
+    Filters moved to the top-level 'filters' block; the old spelling must fail
+    loudly rather than be silently ignored.
+    """
+    path = tmp_path / "model.yaml"
+    path.write_text(
+        MODEL_YAML.replace(
+            "usecase_overrides: {}",
+            "usecase_overrides:\n"
+            f"  {USECASE_ID}:\n"
+            "    filters:\n"
+            "      - column: gross_floor_area\n"
+            "        min_value: 400\n",
+        )
+    )
+    config = ModelConfig.from_yaml(path)
+
+    with pytest.raises(ValueError, match="Filters now live in the top-level"):
+        config.resolve(
+            target_set="electricity", model_type="ridge_poly", usecase_id=USECASE_ID
+        )
 
 
 def test_from_yaml_rejects_non_empty_list_usecase_overrides(tmp_path: Path):
