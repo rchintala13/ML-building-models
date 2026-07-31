@@ -1,7 +1,9 @@
 # ----------------------------
-# DATA (never commit raw data)
+# DATA (never commit raw or derived data)
 # ----------------------------
 data/raw/
+data/interim/
+data/processed/
 
 # ----------------------------
 # TRAINED MODELS
